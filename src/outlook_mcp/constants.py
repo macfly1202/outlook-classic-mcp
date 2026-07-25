@@ -82,5 +82,9 @@ OL_RECURS_YEARLY = 5
 # OlMeetingStatus
 OL_MEETING = 1
 
+# OlRuleType
+OL_RULE_RECEIVE = 0
+OL_RULE_SEND = 1
+
 # Out-of-office MAPI property tag (PR_OOF_STATE)
 OOF_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x661D000B"

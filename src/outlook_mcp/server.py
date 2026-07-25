@@ -29,7 +29,8 @@ Tool categories (all prefixed `outlook_`):
     get_contact, resolve_name (name -> SMTP address)
   - Tasks: list_tasks, create_task, complete_task
   - Categories: list_categories, set_category
-  - Rules: list_rules, toggle_rule  (modifies live mail rules — confirm first)
+  - Rules: list_rules, toggle_rule, create_rule, update_rule
+    (modifies live mail rules — confirm first)
   - Out-of-Office: get_out_of_office
   - Account: whoami  (sanity check on the bound mailbox)
 

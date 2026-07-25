@@ -119,7 +119,7 @@ server entry in its MCP config:
 
 ## Tools
 
-31 tools across 9 categories, all prefixed `outlook_*`.
+34 tools across 9 categories, all prefixed `outlook_*`.
 
 | Category       | Tools |
 | -------------- | ----- |
@@ -128,8 +128,8 @@ server entry in its MCP config:
 | Calendar       | `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `respond_event` |
 | Contacts       | `list_contacts`, `search_contacts` (saved contacts + org directory), `get_contact`, `resolve_name` |
 | Tasks          | `list_tasks`, `create_task`, `complete_task` |
-| Categories     | `list_categories`, `set_category` |
-| Rules          | `list_rules`, `toggle_rule` |
+| Categories     | `list_categories`, `create_category`, `set_category` |
+| Rules          | `list_rules`, `toggle_rule`, `create_rule`, `update_rule` |
 | Out-of-Office  | `get_out_of_office` |
 | Account        | `whoami` — sanity check; shows the bound mailbox |
 
@@ -302,6 +302,10 @@ publish.bat
 - Toggling mail rules modifies live rules immediately — there is no
   staging buffer. Confirm the rule name with `outlook_list_rules`
   before calling `outlook_toggle_rule`.
+- Rule creation/editing exposes the most reliable Outlook COM subset:
+  receive rules with sender-address / subject / body matching plus
+  move/copy actions. The native Outlook Rules UI supports more
+  condition/action types than the COM API exposes cleanly here.
 - This server is **local-only**. Do not expose it over a network.
 
 ---

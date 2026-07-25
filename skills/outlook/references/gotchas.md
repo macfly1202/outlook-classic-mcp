@@ -26,9 +26,9 @@ All datetimes the integration returns are in the **user's local timezone with an
 
 ## Toggling a rule changed the user's actual mail flow before they confirmed
 
-`outlook_toggle_rule` modifies a live mail rule the moment it returns successfully. There's no staging buffer, no preview, no undo. If you call it on the wrong rule name, the user's mail is now being filed (or not filed) differently for real.
+`outlook_toggle_rule`, `outlook_create_rule`, and `outlook_update_rule` modify live mail rules the moment they return successfully. There's no staging buffer, no preview, no undo. If you call them with the wrong rule name or target folder, the user's mail is now being filed differently for real.
 
-**Always**: `outlook_list_rules` first → confirm the **exact** rule name with the user → only then `outlook_toggle_rule`.
+**Always**: `outlook_list_rules` first → confirm the **exact** rule name and target behavior with the user → only then mutate the rule.
 
 ## "Set my OOO to on for the next two weeks" — and it just doesn't
 
@@ -95,7 +95,9 @@ On corporate accounts the personal Contacts folder is usually **empty** — coll
 
 ## "It says my category 'Urgent' doesn't exist."
 
-`outlook_set_category` doesn't validate the names against the profile's defined categories. If you set a category that isn't defined, Outlook will accept the string but the item won't get the color and the user won't see a recognizable tag in the UI.
+`outlook_set_category` and rule action `assign_categories` don't validate names against the profile's defined categories. If you use a category that isn't defined, Outlook will accept the string but the item won't get the color and the user won't see a recognizable tag in the UI.
+
+Create the category first with `outlook_create_category` if you want consistent UI behavior.
 
 **Best practice**: `outlook_list_categories` first; only assign names that come back from there. If the user wants a brand-new category, they need to create it in Outlook (Home → Categorize → All Categories → New) — there is no `create_category` tool.
 

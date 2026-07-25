@@ -31,6 +31,30 @@ def register(mcp, bridge) -> None:
         return format_response(data, response_format)
 
     @mcp.tool(
+        name="outlook_create_category",
+        annotations={
+            "title": "Create an Outlook color category",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    )
+    @safe_call
+    async def outlook_create_category(
+        name: Annotated[str, Field(min_length=1, description="Category display name.")],
+        color: Annotated[
+            int | None,
+            Field(
+                description="Optional Outlook category color enum value. Omit to let Outlook choose.",
+            ),
+        ] = None,
+    ) -> str:
+        """Create a profile-wide Outlook category."""
+        data = await bridge.call(cat_client.create_category, name=name, color=color)
+        return format_response(data, "json")
+
+    @mcp.tool(
         name="outlook_set_category",
         annotations={
             "title": "Set categories on a mail / event / task",

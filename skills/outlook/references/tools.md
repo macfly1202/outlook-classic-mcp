@@ -9,8 +9,8 @@ Every `outlook_*` tool, with parameters, defaults, return shape, and notes on ch
 - [Calendar](#calendar) — list_events, get_event, create_event, update_event, delete_event, respond_event
 - [Contacts](#contacts) — list_contacts, search_contacts, get_contact, resolve_name
 - [Tasks](#tasks) — list_tasks, create_task, complete_task
-- [Categories](#categories) — list_categories, set_category
-- [Rules](#rules) — list_rules, toggle_rule
+- [Categories](#categories) — list_categories, create_category, set_category
+- [Rules](#rules) — list_rules, toggle_rule, create_rule, update_rule
 - [Out-of-Office](#out-of-office) — get_out_of_office
 - [Account](#account) — whoami
 - [Common return-field glossary](#common-return-field-glossary)
@@ -365,6 +365,17 @@ Marks the task 100% complete. Returns `{ status: "completed", entry_id }`.
 
 Returns the color categories defined in the user's Outlook profile: `{ count, items: [{name, color}, ...] }`. Categories are profile-wide, not per-folder.
 
+### `outlook_create_category`
+
+Creates a new category in the master category list for this Outlook profile.
+
+| Param   | Type        | Default | Notes |
+| ------- | ----------- | ------- | ----- |
+| `name`  | string      | required | Category display name. |
+| `color` | int / null  | `null`  | Optional Outlook color enum value. Omit to let Outlook choose automatically. |
+
+**Returns**: `{ status: "created", category: {name, color} }`.
+
 ### `outlook_set_category`
 
 Replace the categories on any item (mail, event, task).
@@ -382,7 +393,8 @@ This **replaces** existing categories rather than adding to them. To add `Foo` t
 
 ### `outlook_list_rules`
 
-Returns the user's mail rules with their on/off state: `{ count, items: [{index, name, enabled}] }`.
+Returns the user's mail rules with their on/off state plus the supported editable subset:
+`{ count, items: [{index, name, enabled, execution_order, rule_type, supported_conditions, supported_actions}] }`.
 
 ### `outlook_toggle_rule`
 
@@ -392,6 +404,44 @@ Returns the user's mail rules with their on/off state: `{ count, items: [{index,
 | `enabled`   | bool   | required | `true` to enable, `false` to disable. |
 
 This change is live the moment it's saved — no staging buffer. Confirm the rule name with the user before calling.
+
+### `outlook_create_rule`
+
+Creates a **receive rule** using the supported COM-safe subset: sender-address / subject / body conditions and move/copy/assign-category actions.
+
+| Param                     | Type         | Default | Notes |
+| ------------------------- | ------------ | ------- | ----- |
+| `name`                    | string       | required | Display name for the rule. |
+| `sender_address_contains` | list[string] | `null`  | Optional OR-match sender substrings. |
+| `subject_contains`        | list[string] | `null`  | Optional OR-match subject substrings. |
+| `body_contains`           | list[string] | `null`  | Optional OR-match body substrings. |
+| `move_to_folder`          | string       | `null`  | Optional move target folder path/name. |
+| `copy_to_folder`          | string       | `null`  | Optional copy target folder path/name. |
+| `assign_categories`       | list[string] | `null`  | Optional category names to assign. |
+| `enabled`                 | bool         | `true`  | Whether the new rule starts enabled. |
+
+At least one supported condition and one supported action are required.
+
+### `outlook_update_rule`
+
+Updates a rule's supported editable fields in place.
+
+| Param                     | Type         | Default | Notes |
+| ------------------------- | ------------ | ------- | ----- |
+| `rule_name`               | string       | required | **Exact** current rule name from `list_rules`. |
+| `new_name`                | string       | `null`  | Rename the rule. |
+| `enabled`                 | bool         | `null`  | Toggle on/off; omit to leave unchanged. |
+| `sender_address_contains` | list[string] | `null`  | Replace sender substrings; pass `[]` to clear. |
+| `subject_contains`        | list[string] | `null`  | Replace subject substrings; pass `[]` to clear. |
+| `body_contains`           | list[string] | `null`  | Replace body substrings; pass `[]` to clear. |
+| `move_to_folder`          | string       | `null`  | Replace move target folder. |
+| `copy_to_folder`          | string       | `null`  | Replace copy target folder. |
+| `assign_categories`       | list[string] | `null`  | Replace assigned categories; pass `[]` to clear. |
+| `clear_move_to_folder`    | bool         | `false` | Disable the move action entirely. |
+| `clear_copy_to_folder`    | bool         | `false` | Disable the copy action entirely. |
+| `clear_assign_categories` | bool         | `false` | Disable category assignment entirely. |
+
+The rule must still have at least one supported condition and one supported action after the update.
 
 ---
 

@@ -30,8 +30,8 @@ All tools are prefixed `outlook_`. Memorize the categories; consult `references/
 | Calendar       | `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `respond_event` |
 | Contacts       | `list_contacts`, `search_contacts` (incl. org directory), `get_contact`, `resolve_name` |
 | Tasks          | `list_tasks`, `create_task`, `complete_task` |
-| Categories     | `list_categories`, `set_category` |
-| Rules          | `list_rules`, `toggle_rule` |
+| Categories     | `list_categories`, `create_category`, `set_category` |
+| Rules          | `list_rules`, `toggle_rule`, `create_rule`, `update_rule` |
 | Out-of-Office  | `get_out_of_office` (read-only) |
 | Account        | `whoami` |
 
@@ -92,7 +92,7 @@ Read freely:
 `list_mails`, `search_mails`, `get_mail`, `list_folders`, `list_events`, `get_event`, `list_contacts`, `search_contacts`, `get_contact`, `resolve_name`, `list_tasks`, `list_categories`, `list_rules`, `get_out_of_office`, `whoami`.
 
 Confirm before calling (these change shared state or send messages):
-`send_mail`, `reply_mail`, `forward_mail`, `delete_mail`, `move_mail`, `mark_mail`, `save_attachments`, `create_event` (especially with attendees — that sends a meeting invite immediately), `update_event`, `delete_event`, `respond_event` (with `send_response=true`), `create_folder`, `create_task`, `complete_task`, `set_category`, `toggle_rule`.
+`send_mail`, `reply_mail`, `forward_mail`, `delete_mail`, `move_mail`, `mark_mail`, `save_attachments`, `create_event` (especially with attendees — that sends a meeting invite immediately), `update_event`, `delete_event`, `respond_event` (with `send_response=true`), `create_folder`, `create_task`, `complete_task`, `set_category`, `toggle_rule`, `create_rule`, `update_rule`.
 
 Two staging tricks worth knowing:
 - `outlook_send_mail(..., save_only=true)` saves to Drafts without sending — perfect for "draft a reply for me to look at" requests.
@@ -110,7 +110,7 @@ Two staging tricks worth knowing:
 Read `references/gotchas.md` for the complete list. The non-negotiables:
 
 - **Exchange sender addresses look like `EX:/O=...` distinguished names**, not SMTP. When filtering with `from_address` in `list_mails`, pass a name substring (e.g. `"sarah"`) rather than an exact address.
-- **Mail rule toggling is live.** `toggle_rule` flips a real rule the instant it's called. Always `list_rules` first, confirm the exact rule name with the user, then toggle.
+- **Mail rule edits are live.** `toggle_rule`, `create_rule`, and `update_rule` change real Outlook rules immediately. Always `list_rules` first, confirm the exact rule name and target behavior with the user, then mutate.
 - **OOO is read-only here.** `get_out_of_office` reports state; there is no tool to enable/disable. If the user wants to set OOO, tell them to use Outlook → File → Automatic Replies.
 - **Programmatic Access prompts** on corporate machines can silently block `send_mail`/`reply_mail`/`forward_mail`/`delete_mail`. If the user reports "you said you sent it but I don't see it", point them to Outlook → File → Options → Trust Center → Programmatic Access.
 - **First call after a cold start can take several seconds.** Don't retry as if it had failed.
