@@ -133,6 +133,10 @@ server entry in its MCP config:
 | Out-of-Office  | `get_out_of_office` |
 | Account        | `whoami` — sanity check; shows the bound mailbox |
 
+Rules now support creation and in-place updates for a practical Outlook COM-safe subset: sender-address / subject / body conditions, plus move, copy, and assign-category actions.
+
+Categories can now be listed, created, and assigned, which makes rule-based tagging workflows fully automatable.
+
 ---
 
 ## MCP Apps — interactive UI in the chat
