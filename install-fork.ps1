@@ -51,6 +51,17 @@ if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
     throw "Claude Code is not available in PATH. Install or update Claude Code, then re-run this script."
 }
 
+if (Get-Command gh -ErrorAction SilentlyContinue) {
+    & gh auth status *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Configuring Git to access the private fork..." -ForegroundColor Yellow
+        & gh auth setup-git
+        if ($LASTEXITCODE -ne 0) {
+            throw "GitHub CLI could not configure Git authentication."
+        }
+    }
+}
+
 $uvPath = Resolve-Uv
 if (-not $uvPath -and -not $SkipUvInstall) {
     Write-Host "Installing uv..." -ForegroundColor Yellow

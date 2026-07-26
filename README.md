@@ -42,15 +42,25 @@ The plugin format started in Claude Code and is now supported by other agents to
 
 #### Replace the original plugin in one command
 
-If `outlook@outlook-classic-mcp` from the original repository is already installed, run this in PowerShell:
+This fork is currently private. Install GitHub CLI and authenticate the Windows computer first:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/macfly1202/outlook-classic-mcp/main/install-fork.ps1 | iex"
+winget install --id GitHub.cli
+gh auth login
+gh auth setup-git
+```
+
+If `outlook@outlook-classic-mcp` from the original repository is already installed, run:
+
+```powershell
+$installer = gh api -H "Accept: application/vnd.github.raw+json" repos/macfly1202/outlook-classic-mcp/contents/install-fork.ps1
+Invoke-Expression ($installer | Out-String)
 ```
 
 The script:
 
 - installs `uv` if necessary;
+- configures Git authentication for the private fork;
 - uninstalls the existing Outlook plugin from user/project/local scopes;
 - removes the old `outlook-classic-mcp` marketplace;
 - clears the cached PyPI build;
@@ -72,6 +82,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 Open a fresh terminal so PATH refreshes, then run:
 
 ```powershell
+gh auth setup-git
 claude plugin marketplace remove outlook-classic-mcp
 claude plugin marketplace add macfly1202/outlook-classic-mcp
 claude plugin install outlook@outlook-classic-mcp --scope user
@@ -95,10 +106,11 @@ Works for any MCP client. The smart client installer auto-registers the server w
 Run without installing:
 
 ```powershell
+gh auth setup-git
 uvx --from "git+https://github.com/macfly1202/outlook-classic-mcp.git@main" outlook-mcp
 ```
 
-The PyPI package named `outlook-classic-mcp` is the upstream publication and does not contain this fork's additional tools.
+GitHub authentication is required while the repository remains private. The PyPI package named `outlook-classic-mcp` is the upstream publication and does not contain this fork's additional tools.
 
 ---
 
