@@ -93,6 +93,26 @@ def register(mcp, bridge) -> None:
             Optional[list[str]],
             Field(description="Optional category names to assign to matching mail."),
         ] = None,
+        except_sender_address_contains: Annotated[
+            Optional[list[str]],
+            Field(description="Optional sender substrings that prevent the rule from firing."),
+        ] = None,
+        except_subject_contains: Annotated[
+            Optional[list[str]],
+            Field(description="Optional subject substrings that prevent the rule from firing."),
+        ] = None,
+        except_body_contains: Annotated[
+            Optional[list[str]],
+            Field(description="Optional body substrings that prevent the rule from firing."),
+        ] = None,
+        stop_processing_more_rules: Annotated[
+            bool,
+            Field(description="Stop Outlook from evaluating later rules after this one matches."),
+        ] = False,
+        execution_order: Annotated[
+            Optional[int],
+            Field(ge=1, description="Optional execution order among all rules."),
+        ] = None,
         enabled: Annotated[bool, Field(description="Whether the new rule starts enabled.")] = True,
     ) -> str:
         """Create a receive rule using supported COM-editable conditions and actions."""
@@ -105,6 +125,11 @@ def register(mcp, bridge) -> None:
             move_to_folder=move_to_folder,
             copy_to_folder=copy_to_folder,
             assign_categories=assign_categories,
+            except_sender_address_contains=except_sender_address_contains,
+            except_subject_contains=except_subject_contains,
+            except_body_contains=except_body_contains,
+            stop_processing_more_rules=stop_processing_more_rules,
+            execution_order=execution_order,
             enabled=enabled,
         )
         return format_response(data, "json")
@@ -159,6 +184,18 @@ def register(mcp, bridge) -> None:
             Optional[list[str]],
             Field(description="Replace assigned categories. Pass [] to clear this action."),
         ] = None,
+        except_sender_address_contains: Annotated[
+            Optional[list[str]],
+            Field(description="Replace sender exceptions. Pass [] to clear."),
+        ] = None,
+        except_subject_contains: Annotated[
+            Optional[list[str]],
+            Field(description="Replace subject exceptions. Pass [] to clear."),
+        ] = None,
+        except_body_contains: Annotated[
+            Optional[list[str]],
+            Field(description="Replace body exceptions. Pass [] to clear."),
+        ] = None,
         clear_move_to_folder: Annotated[
             bool,
             Field(description="Disable the move action entirely."),
@@ -171,6 +208,14 @@ def register(mcp, bridge) -> None:
             bool,
             Field(description="Disable category assignment entirely."),
         ] = False,
+        stop_processing_more_rules: Annotated[
+            Optional[bool],
+            Field(description="Enable or disable stop-processing action."),
+        ] = None,
+        execution_order: Annotated[
+            Optional[int],
+            Field(ge=1, description="Optional replacement execution order."),
+        ] = None,
     ) -> str:
         """Update a rule's supported fields: name, enabled state, conditions, and actions."""
         data = await bridge.call(
@@ -184,8 +229,37 @@ def register(mcp, bridge) -> None:
             move_to_folder=move_to_folder,
             copy_to_folder=copy_to_folder,
             assign_categories=assign_categories,
+            except_sender_address_contains=except_sender_address_contains,
+            except_subject_contains=except_subject_contains,
+            except_body_contains=except_body_contains,
             clear_move_to_folder=clear_move_to_folder,
             clear_copy_to_folder=clear_copy_to_folder,
             clear_assign_categories=clear_assign_categories,
+            stop_processing_more_rules=stop_processing_more_rules,
+            execution_order=execution_order,
+        )
+        return format_response(data, "json")
+
+    @mcp.tool(
+        name="outlook_delete_rule",
+        annotations={
+            "title": "Delete an Outlook mail rule",
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    )
+    @safe_call
+    async def outlook_delete_rule(
+        rule_name: Annotated[
+            str,
+            Field(min_length=1, description="Exact current rule name (use outlook_list_rules)."),
+        ],
+    ) -> str:
+        """Delete a live Outlook mail rule by name."""
+        data = await bridge.call(
+            rules_client.delete_rule,
+            rule_name=rule_name,
         )
         return format_response(data, "json")

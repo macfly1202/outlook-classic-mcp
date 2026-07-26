@@ -22,11 +22,11 @@ All datetimes the integration returns are in the **user's local timezone with an
 
 ## "Search doesn't find the email I described"
 
-`outlook_search_mails` matches items containing **all** the query words in any order — not the exact phrase, and not fuzzy. If a multi-word query misses, drop to the one or two most distinctive words. Keep in mind it searches **one folder at a time** (default: inbox) — check Sent or other folders explicitly if relevant.
+`outlook_search_mails` matches items containing **all** the query words in any order — not the exact phrase, and not fuzzy. If a multi-word query misses, drop to the one or two most distinctive words. By default it searches one folder (`inbox`), but you can now pass `folders=[...]` to search across Inbox, Sent, Drafts, or custom folder paths in one call.
 
 ## Toggling a rule changed the user's actual mail flow before they confirmed
 
-`outlook_toggle_rule`, `outlook_create_rule`, and `outlook_update_rule` modify live mail rules the moment they return successfully. There's no staging buffer, no preview, no undo. If you call them with the wrong rule name or target folder, the user's mail is now being filed differently for real.
+`outlook_toggle_rule`, `outlook_create_rule`, `outlook_update_rule`, and `outlook_delete_rule` modify live mail rules the moment they return successfully. There's no staging buffer, no preview, no undo. If you call them with the wrong rule name or target folder, the user's mail is now being filed differently for real.
 
 **Always**: `outlook_list_rules` first → confirm the **exact** rule name and target behavior with the user → only then mutate the rule.
 
@@ -50,18 +50,7 @@ Updating an event with attendees usually triggers Outlook to send an updated-mee
 
 ## "I replied — can you save that to drafts so I can edit it first?"
 
-`outlook_reply_mail` doesn't have a `save_only` flag. It sends.
-
-**Workaround**: build the reply yourself and save it via `outlook_send_mail(save_only=true)`:
-
-```
-to = [original.from_address]                        # or all of original.to/cc for reply-all
-subject = "Re: " + original.subject                 # don't double-prefix
-body = your_reply + "\n\n" + original.body          # quote manually
-outlook_send_mail(to=to, subject=subject, body=body, save_only=true)
-```
-
-Tell the user the draft is in the Drafts folder for them to review.
+Use `outlook_reply_mail(save_only=true)` to stage a reply in Drafts, or `outlook_forward_mail(save_only=true)` to stage a forward. You can then refine it with `outlook_update_draft` and finally send it with `outlook_send_draft(confirm_send=true)`.
 
 ## Item not found / EntryID errors after a move
 
@@ -99,7 +88,7 @@ On corporate accounts the personal Contacts folder is usually **empty** — coll
 
 Create the category first with `outlook_create_category` if you want consistent UI behavior.
 
-**Best practice**: `outlook_list_categories` first; only assign names that come back from there. If the user wants a brand-new category, they need to create it in Outlook (Home → Categorize → All Categories → New) — there is no `create_category` tool.
+**Best practice**: `outlook_list_categories` first; only assign names that come back from there. If the user wants a brand-new category, use `outlook_create_category` before assigning it.
 
 ## Attachment / output_dir failures
 

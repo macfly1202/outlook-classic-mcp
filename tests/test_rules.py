@@ -54,6 +54,11 @@ class FakeAssignToCategoryAction:
         self.Categories = list(categories or [])
 
 
+class FakeRuleAction:
+    def __init__(self, enabled: bool = False):
+        self.Enabled = enabled
+
+
 class FakeConditions:
     def __init__(self):
         self.SenderAddress = FakeAddressCondition()
@@ -66,6 +71,7 @@ class FakeActions:
         self.MoveToFolder = FakeFolderAction()
         self.CopyToFolder = FakeFolderAction()
         self.AssignToCategory = FakeAssignToCategoryAction()
+        self.Stop = FakeRuleAction()
 
 
 class FakeRule:
@@ -73,9 +79,18 @@ class FakeRule:
         self.Name = name
         self.RuleType = rule_type
         self.Enabled = True
-        self.ExecutionOrder = 1
+        self._execution_order = 1
         self.Conditions = FakeConditions()
+        self.Exceptions = FakeConditions()
         self.Actions = FakeActions()
+
+    @property
+    def ExecutionOrder(self) -> int:
+        return self._execution_order
+
+    @ExecutionOrder.setter
+    def ExecutionOrder(self, value: int) -> None:
+        self._execution_order = value
 
 
 class FakeRules:
@@ -99,7 +114,27 @@ class FakeRules:
 
     def Save(self) -> None:
         self.save_count += 1
+        desired_orders = {id(rule): rule.ExecutionOrder for rule in self._items}
+        for rule in list(self._items):
+            desired = desired_orders[id(rule)]
+            current = self._items.index(rule) + 1
+            if desired != current:
+                self._items.remove(rule)
+                insert_at = max(0, min(desired - 1, len(self._items)))
+                self._items.insert(insert_at, rule)
         self._refresh_orders()
+
+    def Remove(self, index: str | int) -> None:
+        if isinstance(index, int):
+            del self._items[index - 1]
+            self._refresh_orders()
+            return
+        for i, rule in enumerate(self._items):
+            if rule.Name == index:
+                del self._items[i]
+                self._refresh_orders()
+                return
+        raise KeyError(index)
 
     def _refresh_orders(self) -> None:
         for i, rule in enumerate(self._items, start=1):
@@ -153,6 +188,7 @@ def test_list_rules_includes_supported_details():
         "alerts@example.com"
     ]
     assert item["supported_conditions"]["subject_contains"] == ["urgent"]
+    assert item["supported_exceptions"]["subject_contains"] == []
     assert item["supported_actions"]["move_to_folder"] == (
         "Mailbox - test@example.com\\Inbox\\Projects"
     )
@@ -195,8 +231,10 @@ def test_update_rule_can_rename_and_replace_supported_fields():
         enabled=False,
         sender_address_contains=["jira@example.com"],
         subject_contains=[],
+        except_subject_contains=["ignore"],
         copy_to_folder="Inbox/Archive",
         clear_move_to_folder=True,
+        stop_processing_more_rules=True,
     )
 
     assert payload["status"] == "updated"
@@ -206,9 +244,11 @@ def test_update_rule_can_rename_and_replace_supported_fields():
     assert updated.Enabled is False
     assert updated.Conditions.SenderAddress.Address == ["jira@example.com"]
     assert updated.Conditions.Subject.Enabled is False
+    assert updated.Exceptions.Subject.Text == ["ignore"]
     assert updated.Actions.MoveToFolder.Enabled is False
     assert updated.Actions.CopyToFolder.Enabled is True
     assert updated.Actions.CopyToFolder.Folder.Name == "Archive"
+    assert updated.Actions.Stop.Enabled is True
 
 
 def test_create_rule_can_assign_categories():
@@ -226,6 +266,56 @@ def test_create_rule_can_assign_categories():
     created = rules.Item(1)
     assert created.Actions.AssignToCategory.Enabled is True
     assert created.Actions.AssignToCategory.Categories == ["VIP", "Follow-up"]
+
+
+def test_create_rule_can_set_order_and_exceptions():
+    first = FakeRule("First")
+    first.Conditions.Subject.Enabled = True
+    first.Conditions.Subject.Text = ["a"]
+    first.Actions.MoveToFolder.Enabled = True
+    second = FakeRule("Second")
+    second.Conditions.Subject.Enabled = True
+    second.Conditions.Subject.Text = ["b"]
+    namespace, rules, folders = _namespace_with_rules([first, second])
+    first.Actions.MoveToFolder.Folder = folders["projects"]
+    second.Actions.MoveToFolder.Enabled = True
+    second.Actions.MoveToFolder.Folder = folders["archive"]
+
+    payload = rules_client.create_rule(
+        None,
+        namespace,
+        name="Inserted",
+        sender_address_contains=["alerts@example.com"],
+        except_body_contains=["skip"],
+        move_to_folder="Inbox/Projects",
+        stop_processing_more_rules=True,
+        execution_order=2,
+    )
+
+    assert payload["status"] == "created"
+    assert rules.Item(2).Name == "Inserted"
+    assert rules.Item(2).Exceptions.Body.Text == ["skip"]
+    assert rules.Item(2).Actions.Stop.Enabled is True
+
+
+def test_delete_rule_removes_rule_by_name():
+    first = FakeRule("First")
+    second = FakeRule("Second")
+    first.Conditions.Subject.Enabled = True
+    first.Conditions.Subject.Text = ["a"]
+    second.Conditions.Subject.Enabled = True
+    second.Conditions.Subject.Text = ["b"]
+    namespace, rules, folders = _namespace_with_rules([first, second])
+    first.Actions.MoveToFolder.Enabled = True
+    first.Actions.MoveToFolder.Folder = folders["projects"]
+    second.Actions.MoveToFolder.Enabled = True
+    second.Actions.MoveToFolder.Folder = folders["archive"]
+
+    payload = rules_client.delete_rule(None, namespace, rule_name="First")
+
+    assert payload == {"status": "deleted", "rule_name": "First"}
+    assert rules.Count == 1
+    assert rules.Item(1).Name == "Second"
 
 
 def test_create_rule_requires_supported_action():

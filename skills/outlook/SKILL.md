@@ -25,13 +25,13 @@ All tools are prefixed `outlook_`. Memorize the categories; consult `references/
 
 | Category       | Tools |
 | -------------- | ----- |
-| Mail           | `list_mails`, `search_mails`, `get_mail`, `send_mail`, `reply_mail`, `forward_mail`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
+| Mail           | `list_mails`, `search_mails`, `get_mail`, `send_mail`, `reply_mail`, `forward_mail`, `create_draft`, `update_draft`, `send_draft`, `list_conversation`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
 | Folders        | `list_folders`, `create_folder` |
 | Calendar       | `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `respond_event` |
 | Contacts       | `list_contacts`, `search_contacts` (incl. org directory), `get_contact`, `resolve_name` |
 | Tasks          | `list_tasks`, `create_task`, `complete_task` |
 | Categories     | `list_categories`, `create_category`, `set_category` |
-| Rules          | `list_rules`, `toggle_rule`, `create_rule`, `update_rule` |
+| Rules          | `list_rules`, `toggle_rule`, `create_rule`, `update_rule`, `delete_rule` |
 | Out-of-Office  | `get_out_of_office` (read-only) |
 | Account        | `whoami` |
 
@@ -92,10 +92,12 @@ Read freely:
 `list_mails`, `search_mails`, `get_mail`, `list_folders`, `list_events`, `get_event`, `list_contacts`, `search_contacts`, `get_contact`, `resolve_name`, `list_tasks`, `list_categories`, `list_rules`, `get_out_of_office`, `whoami`.
 
 Confirm before calling (these change shared state or send messages):
-`send_mail`, `reply_mail`, `forward_mail`, `delete_mail`, `move_mail`, `mark_mail`, `save_attachments`, `create_event` (especially with attendees — that sends a meeting invite immediately), `update_event`, `delete_event`, `respond_event` (with `send_response=true`), `create_folder`, `create_task`, `complete_task`, `set_category`, `toggle_rule`, `create_rule`, `update_rule`.
+`send_mail`, `reply_mail`, `forward_mail`, `send_draft`, `delete_mail`, `move_mail`, `mark_mail`, `save_attachments`, `create_event` (especially with attendees — that sends a meeting invite immediately), `update_event`, `delete_event`, `respond_event` (with `send_response=true`), `create_folder`, `create_task`, `complete_task`, `set_category`, `toggle_rule`, `create_rule`, `update_rule`, `delete_rule`.
 
 Two staging tricks worth knowing:
-- `outlook_send_mail(..., save_only=true)` saves to Drafts without sending — perfect for "draft a reply for me to look at" requests.
+- `outlook_send_mail(..., save_only=true)` saves to Drafts without sending.
+- `outlook_reply_mail(..., save_only=true)` and `outlook_forward_mail(..., save_only=true)` stage replies/forwards in Drafts instead of sending immediately.
+- `outlook_update_draft` and `outlook_send_draft` let you refine and then explicitly send a saved draft.
 - `outlook_respond_event(..., send_response=false)` records your local accept/decline without emailing the organizer.
 
 ## Default workflow
@@ -111,6 +113,7 @@ Read `references/gotchas.md` for the complete list. The non-negotiables:
 
 - **Exchange sender addresses look like `EX:/O=...` distinguished names**, not SMTP. When filtering with `from_address` in `list_mails`, pass a name substring (e.g. `"sarah"`) rather than an exact address.
 - **Mail rule edits are live.** `toggle_rule`, `create_rule`, and `update_rule` change real Outlook rules immediately. Always `list_rules` first, confirm the exact rule name and target behavior with the user, then mutate.
+- **Outbound mail now requires explicit confirmation.** `send_mail`, `reply_mail`, `forward_mail`, and `send_draft` require `confirm_send=true` unless you're saving a draft instead.
 - **OOO is read-only here.** `get_out_of_office` reports state; there is no tool to enable/disable. If the user wants to set OOO, tell them to use Outlook → File → Automatic Replies.
 - **Programmatic Access prompts** on corporate machines can silently block `send_mail`/`reply_mail`/`forward_mail`/`delete_mail`. If the user reports "you said you sent it but I don't see it", point them to Outlook → File → Options → Trust Center → Programmatic Access.
 - **First call after a cold start can take several seconds.** Don't retry as if it had failed.

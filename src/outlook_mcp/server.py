@@ -22,14 +22,16 @@ server auto-launches Outlook on first call; the new "modern" Outlook
 (olk.exe) is NOT supported.
 
 Tool categories (all prefixed `outlook_`):
-  - Mail: list, search, get, send, reply, forward, move, delete, mark, save_attachments
+  - Mail: list, search, get, send, reply, forward, create_draft,
+    update_draft, send_draft, list_conversation, move, delete, mark,
+    save_attachments
   - Folders: list_folders, create_folder
   - Calendar: list_events, get_event, create_event, update_event, delete_event, respond_event
   - Contacts: list_contacts, search_contacts (incl. org directory/GAL),
     get_contact, resolve_name (name -> SMTP address)
   - Tasks: list_tasks, create_task, complete_task
   - Categories: list_categories, set_category
-  - Rules: list_rules, toggle_rule, create_rule, update_rule
+  - Rules: list_rules, toggle_rule, create_rule, update_rule, delete_rule
     (modifies live mail rules — confirm first)
   - Out-of-Office: get_out_of_office
   - Account: whoami  (sanity check on the bound mailbox)

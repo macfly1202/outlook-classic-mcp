@@ -4,13 +4,13 @@ Every `outlook_*` tool, with parameters, defaults, return shape, and notes on ch
 
 ## Contents
 
-- [Mail](#mail) — list_mails, search_mails, get_mail, send_mail, reply_mail, forward_mail, move_mail, delete_mail, mark_mail, save_attachments
+- [Mail](#mail) — list_mails, search_mails, get_mail, send_mail, reply_mail, forward_mail, create_draft, update_draft, send_draft, list_conversation, move_mail, delete_mail, mark_mail, save_attachments
 - [Folders](#folders) — list_folders, create_folder
 - [Calendar](#calendar) — list_events, get_event, create_event, update_event, delete_event, respond_event
 - [Contacts](#contacts) — list_contacts, search_contacts, get_contact, resolve_name
 - [Tasks](#tasks) — list_tasks, create_task, complete_task
 - [Categories](#categories) — list_categories, create_category, set_category
-- [Rules](#rules) — list_rules, toggle_rule, create_rule, update_rule
+- [Rules](#rules) — list_rules, toggle_rule, create_rule, update_rule, delete_rule
 - [Out-of-Office](#out-of-office) — get_out_of_office
 - [Account](#account) — whoami
 - [Common return-field glossary](#common-return-field-glossary)
@@ -38,17 +38,26 @@ List mail items from a folder, newest first. Read-only.
 
 ### `outlook_search_mails`
 
-Search a single folder by subject/body, subject-only, sender, or raw DASL. Read-only.
+Search one or more folders by subject/body, subject-only, sender, or raw DASL, with optional mail filters. Read-only.
 
 | Param            | Type     | Default          | Notes |
 | ---------------- | -------- | ---------------- | ----- |
 | `query`          | string   | required         | Search words (ALL must match, any order) — or a DASL @SQL filter when `scope='dasl'`. |
 | `folder`         | string   | `"inbox"`        | Where to search. |
+| `folders`        | list[str]| `null`           | Search across multiple folders instead of a single folder. |
 | `scope`          | enum     | `"subject_body"` | `subject_body` (default), `subject`, `from`, or `dasl`. |
 | `limit`          | int 1–100| `25`             | |
+| `unread_only`    | bool     | `false`          | Restrict to unread mail. |
+| `since`          | ISO-8601 | `null`           | Lower bound on the mail timestamp. |
+| `until`          | ISO-8601 | `null`           | Upper bound on the mail timestamp. |
+| `from_address`   | string   | `null`           | Sender substring filter, applied in Python across folders. |
+| `has_attachments`| bool     | `null`           | Require mail with or without attachments. |
+| `importance`     | enum/null| `null`           | `low`, `normal`, or `high`. |
+| `categories_contains` | list[str] | `null`     | Require all listed categories. |
+| `conversation_id`| string   | `null`           | Restrict to a single Outlook thread. |
 | `response_format`| str      | `markdown`       | |
 
-**Returns**: `{ query, scope, folder, count, items: [...] }`. Items have the same summary shape as `list_mails`.
+**Returns**: `{ query, scope, folder, folders, count, items: [...] }`. Items have the same summary shape as `list_mails`.
 
 Multi-word queries match items containing **all** the words (not the exact phrase), so `"teams not working"` finds "MESP-1 teams is not working". `scope='from'` matches display name, raw address, **and** the real SMTP address (works for Exchange senders too).
 
@@ -85,6 +94,7 @@ Compose and send a new mail, or save it to Drafts. Has external side effect.
 | `attachments`  | list[str] | `null`    | Absolute paths under user profile. |
 | `importance`   | enum      | `"normal"`| `low` / `normal` / `high`. |
 | `save_only`    | bool      | `false`   | **Save to Drafts instead of sending.** |
+| `confirm_send` | bool      | `false`   | Required to actually send when `save_only=false`. |
 
 **Returns** (sent): `{ status: "sent", to, cc, bcc, subject }`. (Drafts): `{ status: "saved_to_drafts", entry_id, subject }`.
 
@@ -101,10 +111,10 @@ Reply (or reply-all) to an existing mail. The original message is appended below
 | `reply_all`   | bool      | `false`  | If true, includes the original CC list. |
 | `html`        | bool      | `false`  | |
 | `attachments` | list[str] | `null`   | |
+| `save_only`   | bool      | `false`  | Save the reply to Drafts instead of sending. |
+| `confirm_send`| bool      | `false`  | Required to actually send when `save_only=false`. |
 
-**Returns**: `{ status: "sent", reply_all, in_reply_to, subject }`.
-
-This sends immediately; there's no `save_only` flag on `reply_mail`. To stage a reply for review, copy the original's recipients yourself and call `send_mail` with `save_only=true` instead.
+**Returns**: sent: `{ status: "sent", reply_all, in_reply_to, subject }`; draft: `{ status: "saved_to_drafts", entry_id, reply_all, in_reply_to, subject }`.
 
 ### `outlook_forward_mail`
 
@@ -117,8 +127,71 @@ Forward an existing mail to new recipients with an optional note above. Has exte
 | `body`     | string    | `""`     | Optional note prepended to the forwarded content. |
 | `cc`       | list[str] | `null`   | |
 | `html`     | bool      | `false`  | |
+| `save_only`   | bool      | `false`  | Save the forward to Drafts instead of sending. |
+| `confirm_send`| bool      | `false`  | Required to actually send when `save_only=false`. |
 
-**Returns**: `{ status: "sent", forwarded, to, subject }`.
+**Returns**: sent: `{ status: "sent", forwarded, to, subject }`; draft: `{ status: "saved_to_drafts", entry_id, forwarded, to, subject }`.
+
+### `outlook_create_draft`
+
+Create a new draft directly in Drafts.
+
+| Param         | Type      | Default | Notes |
+| ------------- | --------- | ------- | ----- |
+| `to`          | list[str] | `null`  | Optional recipients. |
+| `subject`     | string    | `""`    | |
+| `body`        | string    | `""`    | |
+| `cc`          | list[str] | `null`  | |
+| `bcc`         | list[str] | `null`  | |
+| `html`        | bool      | `false` | |
+| `attachments` | list[str] | `null`  | |
+| `importance`  | enum      | `"normal"` | `low` / `normal` / `high`. |
+| `categories`  | string    | `null`  | Optional comma-separated categories. |
+
+**Returns**: `{ status: "saved_to_drafts", entry_id, subject }` plus `categories` when set.
+
+### `outlook_update_draft`
+
+Update an existing draft in place.
+
+| Param               | Type      | Default | Notes |
+| ------------------- | --------- | ------- | ----- |
+| `entry_id`          | string    | required | Draft EntryID. |
+| `to`                | list[str] | `null`  | Replace To list. |
+| `subject`           | string    | `null`  | Replace subject. |
+| `body`              | string    | `null`  | Replace body. |
+| `cc`                | list[str] | `null`  | Replace CC list. |
+| `bcc`               | list[str] | `null`  | Replace BCC list. |
+| `html`              | bool      | `null`  | If `body` is present, controls body format. |
+| `attachments_to_add`| list[str] | `null`  | Append files. |
+| `clear_attachments` | bool      | `false` | Remove all existing attachments first. |
+| `importance`        | enum/null | `null`  | Replace importance. |
+| `categories`        | string    | `null`  | Replace comma-separated categories. |
+
+**Returns**: `{ status: "updated", entry_id, subject, to, cc, bcc, categories, attachment_count }`.
+
+### `outlook_send_draft`
+
+Send a previously saved draft.
+
+| Param          | Type   | Default | Notes |
+| -------------- | ------ | ------- | ----- |
+| `entry_id`     | string | required | Draft EntryID. |
+| `confirm_send` | bool   | `false` | Required to actually send the draft. |
+
+### `outlook_list_conversation`
+
+List one Outlook thread across common folders or a custom folder set.
+
+| Param             | Type      | Default | Notes |
+| ----------------- | --------- | ------- | ----- |
+| `entry_id`        | string    | `null`  | Seed mail EntryID. Use this or `conversation_id`. |
+| `conversation_id` | string    | `null`  | Explicit Outlook conversation id. |
+| `folders`         | list[str] | `null`  | Defaults to inbox, sent, drafts, deleted. |
+| `limit`           | int 1–200 | `100`   | Max items returned. |
+| `response_format` | str       | `markdown` | |
+
+**Returns**: `{ conversation_id, count, folders, items: [...] }`, oldest-first within the conversation.
 
 ### `outlook_move_mail`
 
@@ -394,7 +467,7 @@ This **replaces** existing categories rather than adding to them. To add `Foo` t
 ### `outlook_list_rules`
 
 Returns the user's mail rules with their on/off state plus the supported editable subset:
-`{ count, items: [{index, name, enabled, execution_order, rule_type, supported_conditions, supported_actions}] }`.
+`{ count, items: [{index, name, enabled, execution_order, rule_type, supported_conditions, supported_exceptions, supported_actions}] }`.
 
 ### `outlook_toggle_rule`
 
@@ -418,6 +491,11 @@ Creates a **receive rule** using the supported COM-safe subset: sender-address /
 | `move_to_folder`          | string       | `null`  | Optional move target folder path/name. |
 | `copy_to_folder`          | string       | `null`  | Optional copy target folder path/name. |
 | `assign_categories`       | list[string] | `null`  | Optional category names to assign. |
+| `except_sender_address_contains` | list[string] | `null` | Sender substrings that block the rule. |
+| `except_subject_contains` | list[string] | `null`  | Subject substrings that block the rule. |
+| `except_body_contains`    | list[string] | `null`  | Body substrings that block the rule. |
+| `stop_processing_more_rules` | bool      | `false` | Stop later rules after this one matches. |
+| `execution_order`         | int/null     | `null`  | Optional rule position in the collection. |
 | `enabled`                 | bool         | `true`  | Whether the new rule starts enabled. |
 
 At least one supported condition and one supported action are required.
@@ -437,11 +515,24 @@ Updates a rule's supported editable fields in place.
 | `move_to_folder`          | string       | `null`  | Replace move target folder. |
 | `copy_to_folder`          | string       | `null`  | Replace copy target folder. |
 | `assign_categories`       | list[string] | `null`  | Replace assigned categories; pass `[]` to clear. |
+| `except_sender_address_contains` | list[string] | `null` | Replace sender exceptions; pass `[]` to clear. |
+| `except_subject_contains` | list[string] | `null`  | Replace subject exceptions; pass `[]` to clear. |
+| `except_body_contains`    | list[string] | `null`  | Replace body exceptions; pass `[]` to clear. |
 | `clear_move_to_folder`    | bool         | `false` | Disable the move action entirely. |
 | `clear_copy_to_folder`    | bool         | `false` | Disable the copy action entirely. |
 | `clear_assign_categories` | bool         | `false` | Disable category assignment entirely. |
+| `stop_processing_more_rules` | bool/null | `null`  | Enable/disable stop-processing. |
+| `execution_order`         | int/null     | `null`  | Reposition the rule in the collection. |
 
 The rule must still have at least one supported condition and one supported action after the update.
+
+### `outlook_delete_rule`
+
+Delete a rule by exact name.
+
+| Param       | Type   | Default | Notes |
+| ----------- | ------ | ------- | ----- |
+| `rule_name` | string | required | **Exact** current rule name from `list_rules`. |
 
 ---
 

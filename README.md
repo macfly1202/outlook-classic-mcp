@@ -119,23 +119,25 @@ server entry in its MCP config:
 
 ## Tools
 
-34 tools across 9 categories, all prefixed `outlook_*`.
+39 tools across 9 categories, all prefixed `outlook_*`.
 
 | Category       | Tools |
 | -------------- | ----- |
-| Mail           | `list_mails`, `search_mails`, `get_mail`, `send_mail`, `reply_mail`, `forward_mail`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
+| Mail           | `list_mails`, `search_mails`, `get_mail`, `send_mail`, `reply_mail`, `forward_mail`, `create_draft`, `update_draft`, `send_draft`, `list_conversation`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
 | Folders        | `list_folders`, `create_folder` |
 | Calendar       | `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `respond_event` |
 | Contacts       | `list_contacts`, `search_contacts` (saved contacts + org directory), `get_contact`, `resolve_name` |
 | Tasks          | `list_tasks`, `create_task`, `complete_task` |
 | Categories     | `list_categories`, `create_category`, `set_category` |
-| Rules          | `list_rules`, `toggle_rule`, `create_rule`, `update_rule` |
+| Rules          | `list_rules`, `toggle_rule`, `create_rule`, `update_rule`, `delete_rule` |
 | Out-of-Office  | `get_out_of_office` |
 | Account        | `whoami` — sanity check; shows the bound mailbox |
 
 Rules now support creation and in-place updates for a practical Outlook COM-safe subset: sender-address / subject / body conditions, plus move, copy, and assign-category actions.
 
 Categories can now be listed, created, and assigned, which makes rule-based tagging workflows fully automatable.
+
+Mail workflows now cover editable drafts, conversation/thread retrieval across common folders, richer cross-folder search filters, and explicit send confirmation on outbound tools.
 
 ---
 

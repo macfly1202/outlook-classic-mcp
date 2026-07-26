@@ -103,7 +103,7 @@ def _set_folder_action(namespace: Any, action: Any, folder_spec: str | None) -> 
 
 def _apply_supported_config(
     namespace: Any,
-    rule: Any,
+    target: Any,
     *,
     sender_address_contains: list[str] | None = None,
     subject_contains: list[str] | None = None,
@@ -114,30 +114,31 @@ def _apply_supported_config(
     clear_move_to_folder: bool = False,
     clear_copy_to_folder: bool = False,
     clear_assign_categories: bool = False,
+    stop_processing_more_rules: bool | None = None,
 ) -> None:
     if sender_address_contains is not None:
         _set_address_condition(
-            rule.Conditions.SenderAddress, _clean_terms(sender_address_contains)
+            target.SenderAddress, _clean_terms(sender_address_contains)
         )
     if subject_contains is not None:
-        _set_text_condition(rule.Conditions.Subject, _clean_terms(subject_contains))
+        _set_text_condition(target.Subject, _clean_terms(subject_contains))
     if body_contains is not None:
-        _set_text_condition(rule.Conditions.Body, _clean_terms(body_contains))
-    if move_to_folder is not None or clear_move_to_folder:
+        _set_text_condition(target.Body, _clean_terms(body_contains))
+    if hasattr(target, "MoveToFolder") and (move_to_folder is not None or clear_move_to_folder):
         _set_folder_action(
             namespace,
-            rule.Actions.MoveToFolder,
+            target.MoveToFolder,
             None if clear_move_to_folder else move_to_folder,
         )
-    if copy_to_folder is not None or clear_copy_to_folder:
+    if hasattr(target, "CopyToFolder") and (copy_to_folder is not None or clear_copy_to_folder):
         _set_folder_action(
             namespace,
-            rule.Actions.CopyToFolder,
+            target.CopyToFolder,
             None if clear_copy_to_folder else copy_to_folder,
         )
-    if assign_categories is not None or clear_assign_categories:
+    if hasattr(target, "AssignToCategory") and (assign_categories is not None or clear_assign_categories):
         categories = _clean_terms(assign_categories)
-        action = rule.Actions.AssignToCategory
+        action = target.AssignToCategory
         if clear_assign_categories or not categories:
             action.Enabled = False
             try:
@@ -147,6 +148,8 @@ def _apply_supported_config(
         else:
             action.Categories = list(categories)
             action.Enabled = True
+    if hasattr(target, "Stop") and stop_processing_more_rules is not None:
+        target.Stop.Enabled = stop_processing_more_rules
 
 
 def _rule_type_label(rule: Any) -> str:
@@ -165,6 +168,7 @@ def _rule_summary(index: int, rule: Any) -> dict[str, Any]:
     move_action = rule.Actions.MoveToFolder
     copy_action = rule.Actions.CopyToFolder
     category_action = rule.Actions.AssignToCategory
+    stop_action = rule.Actions.Stop
     return {
         "index": index,
         "name": rule.Name,
@@ -184,6 +188,19 @@ def _rule_summary(index: int, rule: Any) -> dict[str, Any]:
             if _safe_get(body_condition, "Enabled")
             else [],
         },
+        "supported_exceptions": {
+            "sender_address_contains": _as_string_list(
+                _safe_get(rule.Exceptions.SenderAddress, "Address")
+            )
+            if _safe_get(rule.Exceptions.SenderAddress, "Enabled")
+            else [],
+            "subject_contains": _as_string_list(_safe_get(rule.Exceptions.Subject, "Text"))
+            if _safe_get(rule.Exceptions.Subject, "Enabled")
+            else [],
+            "body_contains": _as_string_list(_safe_get(rule.Exceptions.Body, "Text"))
+            if _safe_get(rule.Exceptions.Body, "Enabled")
+            else [],
+        },
         "supported_actions": {
             "move_to_folder": _folder_label(_safe_get(move_action, "Folder"))
             if _safe_get(move_action, "Enabled")
@@ -194,6 +211,7 @@ def _rule_summary(index: int, rule: Any) -> dict[str, Any]:
             "assign_categories": _as_string_list(_safe_get(category_action, "Categories"))
             if _safe_get(category_action, "Enabled")
             else [],
+            "stop_processing_more_rules": bool(_safe_get(stop_action, "Enabled")),
         },
     }
 
@@ -256,20 +274,39 @@ def create_rule(
     move_to_folder: str | None = None,
     copy_to_folder: str | None = None,
     assign_categories: list[str] | None = None,
+    except_sender_address_contains: list[str] | None = None,
+    except_subject_contains: list[str] | None = None,
+    except_body_contains: list[str] | None = None,
+    stop_processing_more_rules: bool = False,
+    execution_order: int | None = None,
 ) -> dict[str, Any]:
     rules = _get_rules(namespace)
     rule = rules.Create(name, OL_RULE_RECEIVE)
     _apply_supported_config(
         namespace,
-        rule,
+        rule.Conditions,
         sender_address_contains=sender_address_contains,
         subject_contains=subject_contains,
         body_contains=body_contains,
+    )
+    _apply_supported_config(
+        namespace,
+        rule.Exceptions,
+        sender_address_contains=except_sender_address_contains,
+        subject_contains=except_subject_contains,
+        body_contains=except_body_contains,
+    )
+    _apply_supported_config(
+        namespace,
+        rule.Actions,
         move_to_folder=move_to_folder,
         copy_to_folder=copy_to_folder,
         assign_categories=assign_categories,
+        stop_processing_more_rules=stop_processing_more_rules,
     )
     _validate_supported_rule_shape(rule)
+    if execution_order is not None:
+        rule.ExecutionOrder = execution_order
     rule.Enabled = enabled
     rules.Save()
     index, saved_rule = _find_rule(rules, name)
@@ -292,9 +329,14 @@ def update_rule(
     move_to_folder: str | None = None,
     copy_to_folder: str | None = None,
     assign_categories: list[str] | None = None,
+    except_sender_address_contains: list[str] | None = None,
+    except_subject_contains: list[str] | None = None,
+    except_body_contains: list[str] | None = None,
     clear_move_to_folder: bool = False,
     clear_copy_to_folder: bool = False,
     clear_assign_categories: bool = False,
+    stop_processing_more_rules: bool | None = None,
+    execution_order: int | None = None,
 ) -> dict[str, Any]:
     rules = _get_rules(namespace)
     _, rule = _find_rule(rules, rule_name)
@@ -309,22 +351,53 @@ def update_rule(
 
     _apply_supported_config(
         namespace,
-        rule,
+        rule.Conditions,
         sender_address_contains=sender_address_contains,
         subject_contains=subject_contains,
         body_contains=body_contains,
+    )
+    _apply_supported_config(
+        namespace,
+        rule.Exceptions,
+        sender_address_contains=except_sender_address_contains,
+        subject_contains=except_subject_contains,
+        body_contains=except_body_contains,
+    )
+    _apply_supported_config(
+        namespace,
+        rule.Actions,
         move_to_folder=move_to_folder,
         copy_to_folder=copy_to_folder,
         assign_categories=assign_categories,
         clear_move_to_folder=clear_move_to_folder,
         clear_copy_to_folder=clear_copy_to_folder,
         clear_assign_categories=clear_assign_categories,
+        stop_processing_more_rules=stop_processing_more_rules,
     )
     _validate_supported_rule_shape(rule)
+    if execution_order is not None:
+        rule.ExecutionOrder = execution_order
     rules.Save()
     final_name = new_name or rule_name
     index, saved_rule = _find_rule(rules, final_name)
     return {
         "status": "updated",
         "rule": _rule_summary(index, saved_rule),
+    }
+
+
+def delete_rule(
+    outlook: Any,
+    namespace: Any,
+    *,
+    rule_name: str,
+) -> dict[str, Any]:
+    rules = _get_rules(namespace)
+    _, rule = _find_rule(rules, rule_name)
+    removed_name = rule.Name
+    rules.Remove(rule_name)
+    rules.Save()
+    return {
+        "status": "deleted",
+        "rule_name": removed_name,
     }
