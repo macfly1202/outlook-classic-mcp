@@ -36,9 +36,32 @@ Three paths, simplest first.
 
 ### Option 1 — Agent plugin (recommended)
 
-The repo doubles as a **plugin marketplace**. Installing the plugin registers the MCP server *and* loads the bundled [`outlook` skill](#agent-skill) (an operational reference that teaches the agent how to drive these tools) in one step. The MCP server itself is fetched on demand by `uvx` directly from PyPI — no `git clone`, no `pip install`, no `.venv` to maintain.
+The repo doubles as a **plugin marketplace**. Installing the plugin registers the MCP server *and* loads the bundled [`outlook` skill](#agent-skill) (an operational reference that teaches the agent how to drive these tools) in one step. The MCP server is fetched on demand by `uvx` directly from this GitHub fork — no `git clone`, no `pip install`, no `.venv` to maintain.
 
 The plugin format started in Claude Code and is now supported by other agents too (Cowork, Copilot, Cursor, and others that adopted the plugin/skill format) — point your agent's plugin install flow at this repo. The commands below are for Claude Code:
+
+#### Replace the original plugin in one command
+
+If `outlook@outlook-classic-mcp` from the original repository is already installed, run this in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/macfly1202/outlook-classic-mcp/main/install-fork.ps1 | iex"
+```
+
+The script:
+
+- installs `uv` if necessary;
+- uninstalls the existing Outlook plugin from user/project/local scopes;
+- removes the old `outlook-classic-mcp` marketplace;
+- clears the cached PyPI build;
+- adds `macfly1202/outlook-classic-mcp`;
+- installs `outlook@outlook-classic-mcp` at user scope.
+
+Restart Claude Code after it completes, or run `/reload-plugins`.
+
+To install at project or local scope instead, download the script and pass `-Scope project` or `-Scope local`.
+
+#### Manual plugin installation
 
 Install [`uv`](https://docs.astral.sh/uv/) once if you don't have it:
 
@@ -46,29 +69,36 @@ Install [`uv`](https://docs.astral.sh/uv/) once if you don't have it:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Open a fresh terminal so PATH refreshes, then in any Claude Code session:
+Open a fresh terminal so PATH refreshes, then run:
 
-```text
-/plugin marketplace add anasahmed07/Outlook-Classic-MCP
-/plugin install outlook@outlook-classic-mcp
+```powershell
+claude plugin marketplace remove outlook-classic-mcp
+claude plugin marketplace add macfly1202/outlook-classic-mcp
+claude plugin install outlook@outlook-classic-mcp --scope user
 ```
 
-Restart Claude Code (`/quit`, reopen). First call has a one-time 5–15 s pause while `uvx` resolves the package; subsequent calls are instant. Confirm with `outlook_whoami`.
+Restart Claude Code. First call has a one-time 5–15 s pause while `uvx` resolves the package; subsequent calls are instant. Confirm with `outlook_whoami`.
 
-To update later: `/plugin marketplace update outlook-classic-mcp` then `/plugin update outlook@outlook-classic-mcp`. To pull a fresh PyPI release of the server itself: `uv cache clean outlook-classic-mcp`.
+To update later:
 
-### Option 2 — From PyPI with uv (any MCP client)
+```powershell
+claude plugin marketplace update outlook-classic-mcp
+uv cache clean outlook-classic-mcp
+```
+
+Restart Claude Code after updating.
+
+### Option 2 — Directly from this GitHub fork (any MCP client)
 
 Works for any MCP client. The smart client installer auto-registers the server with Claude Desktop, Claude Code, Cursor, Cline, Continue, and Windsurf; for other clients (e.g. VS Code / Copilot agent mode), add the server to their MCP config manually — see below.
 
-```bat
-uv pip install --system outlook-classic-mcp
-python -m outlook_mcp.scripts.install_to_clients
+Run without installing:
+
+```powershell
+uvx --from "git+https://github.com/macfly1202/outlook-classic-mcp.git@main" outlook-mcp
 ```
 
-(`uv` is Astral's Python installer — see Option 1 above for the one-line install. `--system` writes to your system Python so `python -m outlook_mcp` resolves anywhere; drop the flag if you'd rather install into an active venv.)
-
-Package: <https://pypi.org/project/outlook-classic-mcp/>.
+The PyPI package named `outlook-classic-mcp` is the upstream publication and does not contain this fork's additional tools.
 
 ---
 
@@ -106,7 +136,11 @@ server entry in its MCP config:
   "mcpServers": {
     "outlook": {
       "command": "uvx",
-      "args": ["--from", "outlook-classic-mcp", "outlook-mcp"]
+      "args": [
+        "--from",
+        "git+https://github.com/macfly1202/outlook-classic-mcp.git@main",
+        "outlook-mcp"
+      ]
     }
   }
 }
