@@ -24,6 +24,10 @@ All datetimes the integration returns are in the **user's local timezone with an
 
 `outlook_search_mails` matches items containing **all** the query words in any order — not the exact phrase, and not fuzzy. If a multi-word query misses, drop to the one or two most distinctive words. By default it searches one folder (`inbox`), but you can now pass `folders=[...]` to search across Inbox, Sent, Drafts, or custom folder paths in one call.
 
+Mail list/search results omit `preview` by default for performance. Pass
+`include_preview=true` only when the excerpt is useful, or use
+`outlook_get_mails` to retrieve several selected messages in one operation.
+
 ## Toggling a rule changed the user's actual mail flow before they confirmed
 
 `outlook_toggle_rule`, `outlook_create_rule`, `outlook_update_rule`, and `outlook_delete_rule` modify live mail rules the moment they return successfully. There's no staging buffer, no preview, no undo. If you call them with the wrong rule name or target folder, the user's mail is now being filed differently for real.

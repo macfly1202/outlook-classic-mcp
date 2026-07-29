@@ -11,9 +11,9 @@ import pytest
 
 sys.modules.setdefault("pythoncom", types.ModuleType("pythoncom"))
 
-from outlook_mcp.client import mail as mail_client
-from outlook_mcp.constants import OL_CLASS_MAIL
-from outlook_mcp.errors import OutlookError
+from outlook_mcp.client import mail as mail_client  # noqa: E402
+from outlook_mcp.constants import OL_CLASS_MAIL  # noqa: E402
+from outlook_mcp.errors import OutlookError  # noqa: E402
 
 
 class FakeAttachments(list):
@@ -29,14 +29,89 @@ class FakeAttachments(list):
 
 
 class FakeItems(list):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.restrict_queries: list[str] = []
+
     def Sort(self, *_args, **_kwargs) -> None:
         self.sort(
             key=lambda item: item._timestamp or dt.datetime.min,
             reverse=True,
         )
 
-    def Restrict(self, _query: str):
-        return list(self)
+    def Restrict(self, query: str):
+        self.restrict_queries.append(query)
+        restricted = FakeItems(self)
+        restricted.restrict_queries = self.restrict_queries
+        return restricted
+
+
+class FakeColumns:
+    def __init__(self):
+        self.names: list[str] = []
+
+    def RemoveAll(self) -> None:
+        self.names.clear()
+
+    def Add(self, name: str) -> None:
+        self.names.append(name)
+
+
+class FakeRow:
+    def __init__(self, item: "FakeMailItem"):
+        self._item = item
+
+    def Item(self, name: str):
+        values = {
+            "EntryID": self._item.EntryID,
+            "MessageClass": "IPM.Note",
+            "Subject": self._item.Subject,
+            "ReceivedTime": self._item.ReceivedTime,
+            "SentOn": self._item.SentOn,
+            "LastModificationTime": self._item.LastModificationTime,
+            "SenderName": self._item.SenderName,
+            "SenderEmailAddress": self._item.SenderEmailAddress,
+            "To": self._item.To,
+            "Importance": self._item.Importance,
+            "Categories": self._item.Categories,
+            "Body": self._item.Body[:255],
+            mail_client.TABLE_MESSAGE_FLAGS: 0 if self._item.UnRead else 1,
+            mail_client.TABLE_FLAG_STATUS: self._item.FlagStatus,
+            mail_client.TABLE_HAS_ATTACHMENTS: bool(self._item.Attachments),
+            mail_client.TABLE_CONVERSATION_ID: self._item.ConversationID,
+            mail_client.SMTP_PROPTAG: self._item.SenderEmailAddress,
+        }
+        return values.get(name)
+
+    def BinaryToString(self, name: str) -> str:
+        return str(self.Item(name) or "")
+
+
+class FakeTable:
+    def __init__(self, items: list["FakeMailItem"]):
+        self._items = list(items)
+        self._index = 0
+        self.Columns = FakeColumns()
+        self.restrict_queries: list[str] = []
+
+    @property
+    def EndOfTable(self) -> bool:
+        return self._index >= len(self._items)
+
+    def Sort(self, _property_name: str, descending: bool = False) -> None:
+        self._items.sort(
+            key=lambda item: item._timestamp or dt.datetime.min,
+            reverse=descending,
+        )
+
+    def GetNextRow(self) -> FakeRow:
+        row = FakeRow(self._items[self._index])
+        self._index += 1
+        return row
+
+    def Restrict(self, query: str) -> "FakeTable":
+        self.restrict_queries.append(query)
+        return self
 
 
 class FakeFolder:
@@ -45,11 +120,18 @@ class FakeFolder:
         self.Parent = parent
         self.Folders: list[FakeFolder] = []
         self.Items = FakeItems()
+        self.get_table_queries: list[str] = []
+        self.last_table: FakeTable | None = None
         if parent is None:
             self.FolderPath = f"\\\\{name}"
         else:
             self.FolderPath = f"{parent.FolderPath}\\{name}"
             parent.Folders.append(self)
+
+    def GetTable(self, query: str = "") -> FakeTable:
+        self.get_table_queries.append(query)
+        self.last_table = FakeTable(self.Items)
+        return self.last_table
 
 
 class FakeMailItem:
@@ -211,7 +293,18 @@ def _build_namespace():
         GetDefaultFolder=lambda folder_id: default_map[folder_id],
         GetItemFromID=lambda entry_id, store_id=None: items_by_id[entry_id],
     )
-    return outlook, namespace, items_by_id, {"root": root, "inbox": inbox, "sent": sent, "drafts": drafts, "deleted": deleted}
+    return (
+        outlook,
+        namespace,
+        items_by_id,
+        {
+            "root": root,
+            "inbox": inbox,
+            "sent": sent,
+            "drafts": drafts,
+            "deleted": deleted,
+        },
+    )
 
 
 def test_send_mail_requires_explicit_confirmation():
@@ -288,7 +381,7 @@ def test_list_conversation_collects_thread_across_folders():
 
 
 def test_search_mails_supports_multi_folder_filters():
-    outlook, namespace, _, _ = _build_namespace()
+    outlook, namespace, _, folders = _build_namespace()
 
     payload = mail_client.search_mails(
         outlook,
@@ -301,3 +394,95 @@ def test_search_mails_supports_multi_folder_filters():
 
     assert payload["count"] == 2
     assert {item["entry_id"] for item in payload["items"]} == {"mail-1", "mail-2"}
+    assert all(
+        folder.get_table_queries for folder in (folders["inbox"], folders["sent"])
+    )
+    assert all(
+        all("[Categories]" not in query for query in folder.last_table.restrict_queries)
+        for folder in (folders["inbox"], folders["sent"])
+    )
+
+
+def test_list_mails_uses_table_without_body_preview_by_default():
+    outlook, namespace, _, folders = _build_namespace()
+
+    payload = mail_client.list_mails(outlook, namespace, folder="inbox")
+
+    assert folders["inbox"].get_table_queries
+    assert "preview" not in payload["items"][0]
+    assert "Body" not in folders["inbox"].last_table.Columns.names
+
+
+def test_list_mails_can_request_lightweight_table_preview():
+    outlook, namespace, _, folders = _build_namespace()
+
+    payload = mail_client.list_mails(
+        outlook,
+        namespace,
+        folder="inbox",
+        include_preview=True,
+    )
+
+    assert payload["items"][0]["preview"] == "Need the latest budget"
+    assert "Body" in folders["inbox"].last_table.Columns.names
+
+
+def test_get_mails_batches_multiple_entry_ids():
+    outlook, namespace, _, _ = _build_namespace()
+
+    payload = mail_client.get_mails(
+        outlook,
+        namespace,
+        entry_ids=["mail-1", "mail-2"],
+        include_body=False,
+    )
+
+    assert payload["count"] == 2
+    assert [item["entry_id"] for item in payload["items"]] == ["mail-1", "mail-2"]
+    assert all("body" not in item for item in payload["items"])
+
+
+def test_search_fallback_still_pushes_query_and_date_filters_to_restrict():
+    outlook, namespace, _, folders = _build_namespace()
+
+    def fail_get_table(_query: str = ""):
+        raise RuntimeError("table unavailable")
+
+    folders["inbox"].GetTable = fail_get_table
+    payload = mail_client.search_mails(
+        outlook,
+        namespace,
+        query="budget",
+        folder="inbox",
+        unread_only=True,
+        since="2026-07-01T00:00:00",
+    )
+
+    assert payload["count"] == 1
+    assert any("@SQL=" in query for query in folders["inbox"].Items.restrict_queries)
+    assert "[UnRead] = True" in folders["inbox"].Items.restrict_queries
+    assert any(
+        query.startswith("[ReceivedTime] >=")
+        for query in folders["inbox"].Items.restrict_queries
+    )
+
+
+def test_table_search_loads_full_item_only_when_match_is_beyond_preview():
+    outlook, namespace, items_by_id, folders = _build_namespace()
+    late_match = FakeMailItem(
+        "mail-late",
+        "Long message",
+        ("x" * 300) + "needle",
+        folders["inbox"],
+        received=dt.datetime(2026, 7, 26, 9, 0, 0),
+    )
+    items_by_id[late_match.EntryID] = late_match
+
+    payload = mail_client.search_mails(
+        outlook,
+        namespace,
+        query="needle",
+        folder="inbox",
+    )
+
+    assert [item["entry_id"] for item in payload["items"]] == [late_match.EntryID]

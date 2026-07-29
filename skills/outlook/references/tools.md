@@ -4,7 +4,7 @@ Every `outlook_*` tool, with parameters, defaults, return shape, and notes on ch
 
 ## Contents
 
-- [Mail](#mail) — list_mails, search_mails, get_mail, send_mail, reply_mail, forward_mail, create_draft, update_draft, send_draft, list_conversation, move_mail, delete_mail, mark_mail, save_attachments
+- [Mail](#mail) — list_mails, search_mails, get_mail, get_mails, send_mail, reply_mail, forward_mail, create_draft, update_draft, send_draft, list_conversation, move_mail, delete_mail, mark_mail, save_attachments
 - [Folders](#folders) — list_folders, create_folder
 - [Calendar](#calendar) — list_events, get_event, create_event, update_event, delete_event, respond_event
 - [Contacts](#contacts) — list_contacts, search_contacts, get_contact, resolve_name
@@ -32,9 +32,10 @@ List mail items from a folder, newest first. Read-only.
 | `since`          | ISO-8601  | `null`      | Lower bound on `ReceivedTime`. |
 | `until`          | ISO-8601  | `null`      | Upper bound on `ReceivedTime`. |
 | `from_address`   | string    | `null`      | **Substring** match on sender. See gotcha re: `EX:/O=...` addresses. |
+| `include_preview`| bool      | `false`     | Include a short body excerpt. Leave disabled for the fastest listing. |
 | `response_format`| `markdown`/`json` | `markdown` | Use `json` to extract `entry_id`s. |
 
-**Returns** (`json` shape): `{ folder, count, offset, limit, items: [...], has_more, next_offset }`. Each item has: `entry_id, subject, from, from_address, to, received, unread, has_attachments, importance, preview` (200-char body excerpt).
+**Returns** (`json` shape): `{ folder, count, offset, limit, items: [...], has_more, next_offset }`. Each item has: `entry_id, subject, from, from_address, to, received, unread, has_attachments, importance`; `preview` is present only when requested.
 
 ### `outlook_search_mails`
 
@@ -55,6 +56,7 @@ Search one or more folders by subject/body, subject-only, sender, or raw DASL, w
 | `importance`     | enum/null| `null`           | `low`, `normal`, or `high`. |
 | `categories_contains` | list[str] | `null`     | Require all listed categories. |
 | `conversation_id`| string   | `null`           | Restrict to a single Outlook thread. |
+| `include_preview`| bool     | `false`          | Include a short body excerpt. Leave disabled for faster searches. |
 | `response_format`| str      | `markdown`       | |
 
 **Returns**: `{ query, scope, folder, folders, count, items: [...] }`. Items have the same summary shape as `list_mails`.
@@ -78,6 +80,23 @@ Fetch the body, all headers, and the attachment manifest for one mail. Read-only
 **Returns**: `{ entry_id, conversation_id, subject, from, from_address, to, cc, bcc, received, sent, unread, importance, categories, attachments: [{index, filename, size_bytes}], body }` plus `body_truncated`/`body_total_chars` when the cap was hit (re-call with a higher `max_body_chars` to read more) and `html_body` when `include_html=true`.
 
 `attachments[].index` is **1-indexed**; pass it to `save_attachments` to save a single file.
+
+### `outlook_get_mails`
+
+Fetch up to 50 messages in one COM queue operation. Prefer this over several
+parallel `get_mail` calls because Outlook's object model is STA-only and would
+serialize those calls anyway.
+
+| Param            | Type       | Default | Notes |
+| ---------------- | ---------- | ------- | ----- |
+| `entry_ids`      | list[str]  | required | Between 1 and 50 IDs from list/search results. |
+| `include_body`   | bool       | `false` | Include plain-text bodies. |
+| `include_html`   | bool       | `false` | Include raw HTML bodies; expensive. |
+| `max_body_chars` | int ≥0     | `10000` | Per-message body cap; `0` = unlimited. |
+| `response_format`| str        | `"json"` | |
+
+**Returns**: `{ count, items: [...], errors: [{entry_id, error}] }`. One stale
+ID does not discard the other successfully retrieved messages.
 
 ### `outlook_send_mail`
 
@@ -597,5 +616,5 @@ Returns the bound user, the account list, and the user's timezone: `{ current_us
 - `unread` — bool. Note `mark_mail` returns `unread` (not `read`).
 - `importance` — integer (0=low, 1=normal, 2=high).
 - `categories` — comma-separated string of category names; empty string = none.
-- `preview` — 200-char body excerpt. Not a substitute for `get_mail` / `get_event` when you need the full body.
+- `preview` — optional 200-char body excerpt when `include_preview=true`. Not a substitute for `get_mail` / `get_mails` / `get_event` when you need the full body.
 - `has_more` / `next_offset` — pagination signals on list endpoints.

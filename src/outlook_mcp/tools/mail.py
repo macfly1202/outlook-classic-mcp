@@ -40,10 +40,24 @@ def register(mcp, bridge) -> None:
         limit: Annotated[int, Field(ge=1, le=100, description="Max items.")] = 25,
         offset: Annotated[int, Field(ge=0, description="Pagination offset.")] = 0,
         unread_only: Annotated[bool, Field(description="Return only unread.")] = False,
-        since: Annotated[Optional[str], Field(description="ISO-8601 lower bound on ReceivedTime.")] = None,
-        until: Annotated[Optional[str], Field(description="ISO-8601 upper bound on ReceivedTime.")] = None,
-        from_address: Annotated[Optional[str], Field(description="Substring match on sender email.")] = None,
-        response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
+        since: Annotated[
+            Optional[str], Field(description="ISO-8601 lower bound on ReceivedTime.")
+        ] = None,
+        until: Annotated[
+            Optional[str], Field(description="ISO-8601 upper bound on ReceivedTime.")
+        ] = None,
+        from_address: Annotated[
+            Optional[str], Field(description="Substring match on sender email.")
+        ] = None,
+        include_preview: Annotated[
+            bool,
+            Field(
+                description="Include a short body preview. Disabled by default for faster listings."
+            ),
+        ] = False,
+        response_format: Annotated[
+            str, Field(description="'markdown' or 'json'.")
+        ] = "markdown",
     ) -> CallToolResult:
         """List mail items from a folder, newest first."""
         data = await bridge.call(
@@ -55,6 +69,7 @@ def register(mcp, bridge) -> None:
             since=since,
             until=until,
             from_address=from_address,
+            include_preview=include_preview,
         )
         return ui_result(format_response(data, response_format), data)
 
@@ -72,11 +87,15 @@ def register(mcp, bridge) -> None:
     )
     @safe_call
     async def outlook_search_mails(
-        query: Annotated[str, Field(min_length=1, description="Search keywords or DASL filter.")],
+        query: Annotated[
+            str, Field(min_length=1, description="Search keywords or DASL filter.")
+        ],
         folder: Annotated[str, Field(description="Folder to search in.")] = "inbox",
         folders: Annotated[
             Optional[list[str]],
-            Field(description="Optional list of folders to search across instead of a single folder."),
+            Field(
+                description="Optional list of folders to search across instead of a single folder."
+            ),
         ] = None,
         scope: Annotated[
             str,
@@ -88,17 +107,27 @@ def register(mcp, bridge) -> None:
             ),
         ] = "subject_body",
         limit: Annotated[int, Field(ge=1, le=100)] = 25,
-        unread_only: Annotated[bool, Field(description="Only return unread mail.")] = False,
-        since: Annotated[Optional[str], Field(description="ISO-8601 lower bound on mail timestamp.")] = None,
-        until: Annotated[Optional[str], Field(description="ISO-8601 upper bound on mail timestamp.")] = None,
-        from_address: Annotated[Optional[str], Field(description="Substring match on sender name/address.")] = None,
+        unread_only: Annotated[
+            bool, Field(description="Only return unread mail.")
+        ] = False,
+        since: Annotated[
+            Optional[str], Field(description="ISO-8601 lower bound on mail timestamp.")
+        ] = None,
+        until: Annotated[
+            Optional[str], Field(description="ISO-8601 upper bound on mail timestamp.")
+        ] = None,
+        from_address: Annotated[
+            Optional[str], Field(description="Substring match on sender name/address.")
+        ] = None,
         has_attachments: Annotated[
             Optional[bool],
             Field(description="Filter to mail with or without attachments."),
         ] = None,
         importance: Annotated[
             Optional[str],
-            Field(description="Optional importance filter: 'low', 'normal', or 'high'."),
+            Field(
+                description="Optional importance filter: 'low', 'normal', or 'high'."
+            ),
         ] = None,
         categories_contains: Annotated[
             Optional[list[str]],
@@ -106,9 +135,19 @@ def register(mcp, bridge) -> None:
         ] = None,
         conversation_id: Annotated[
             Optional[str],
-            Field(description="Restrict results to a single Outlook conversation/thread."),
+            Field(
+                description="Restrict results to a single Outlook conversation/thread."
+            ),
         ] = None,
-        response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
+        include_preview: Annotated[
+            bool,
+            Field(
+                description="Include a short body preview. Disabled by default for faster searches."
+            ),
+        ] = False,
+        response_format: Annotated[
+            str, Field(description="'markdown' or 'json'.")
+        ] = "markdown",
     ) -> CallToolResult:
         """Search a mail folder by subject, body, or sender."""
         data = await bridge.call(
@@ -126,6 +165,7 @@ def register(mcp, bridge) -> None:
             importance=importance,
             categories_contains=categories_contains,
             conversation_id=conversation_id,
+            include_preview=include_preview,
         )
         return ui_result(format_response(data, response_format), data)
 
@@ -143,8 +183,12 @@ def register(mcp, bridge) -> None:
     )
     @safe_call
     async def outlook_get_mail(
-        entry_id: Annotated[str, Field(min_length=1, description="EntryID of the mail item.")],
-        include_body: Annotated[bool, Field(description="Include the plain-text body.")] = True,
+        entry_id: Annotated[
+            str, Field(min_length=1, description="EntryID of the mail item.")
+        ],
+        include_body: Annotated[
+            bool, Field(description="Include the plain-text body.")
+        ] = True,
         include_html: Annotated[
             bool,
             Field(
@@ -162,7 +206,9 @@ def register(mcp, bridge) -> None:
                 description="Truncate the body beyond this many chars (0 = no limit).",
             ),
         ] = 10000,
-        response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
+        response_format: Annotated[
+            str, Field(description="'markdown' or 'json'.")
+        ] = "markdown",
     ) -> CallToolResult:
         """Fetch body, headers, and attachment list for one mail item.
 
@@ -179,6 +225,55 @@ def register(mcp, bridge) -> None:
         return ui_result(format_response(data, response_format), data)
 
     @mcp.tool(
+        name="outlook_get_mails",
+        annotations={
+            "title": "Get multiple Outlook mails",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    @safe_call
+    async def outlook_get_mails(
+        entry_ids: Annotated[
+            list[str],
+            Field(
+                min_length=1,
+                max_length=50,
+                description="EntryIDs to fetch in one Outlook COM operation.",
+            ),
+        ],
+        include_body: Annotated[
+            bool,
+            Field(description="Include plain-text bodies for every returned mail."),
+        ] = False,
+        include_html: Annotated[
+            bool,
+            Field(
+                description="Include raw HTML bodies. Expensive; leave disabled normally."
+            ),
+        ] = False,
+        max_body_chars: Annotated[
+            int,
+            Field(ge=0, description="Per-message body cap; 0 means unlimited."),
+        ] = 10000,
+        response_format: Annotated[
+            str,
+            Field(description="'markdown' or 'json'."),
+        ] = "json",
+    ) -> str:
+        """Fetch up to 50 messages in one queued COM call."""
+        data = await bridge.call(
+            mail_client.get_mails,
+            entry_ids=entry_ids,
+            include_body=include_body,
+            include_html=include_html,
+            max_body_chars=max_body_chars,
+        )
+        return format_response(data, response_format)
+
+    @mcp.tool(
         name="outlook_send_mail",
         annotations={
             "title": "Send Outlook mail",
@@ -190,18 +285,32 @@ def register(mcp, bridge) -> None:
     )
     @safe_call
     async def outlook_send_mail(
-        to: Annotated[list[str], Field(min_length=1, description="Recipient addresses.")],
+        to: Annotated[
+            list[str], Field(min_length=1, description="Recipient addresses.")
+        ],
         subject: Annotated[str, Field(description="Subject line.")],
-        body: Annotated[str, Field(description="Message body. Plain text unless html=True.")],
+        body: Annotated[
+            str, Field(description="Message body. Plain text unless html=True.")
+        ],
         cc: Annotated[Optional[list[str]], Field(description="CC recipients.")] = None,
-        bcc: Annotated[Optional[list[str]], Field(description="BCC recipients.")] = None,
+        bcc: Annotated[
+            Optional[list[str]], Field(description="BCC recipients.")
+        ] = None,
         html: Annotated[bool, Field(description="Treat body as HTML.")] = False,
-        attachments: Annotated[Optional[list[str]], Field(description="Absolute paths to local files.")] = None,
-        importance: Annotated[str, Field(description="One of: 'low', 'normal', 'high'.")] = "normal",
-        save_only: Annotated[bool, Field(description="If true, save to Drafts instead of sending.")] = False,
+        attachments: Annotated[
+            Optional[list[str]], Field(description="Absolute paths to local files.")
+        ] = None,
+        importance: Annotated[
+            str, Field(description="One of: 'low', 'normal', 'high'.")
+        ] = "normal",
+        save_only: Annotated[
+            bool, Field(description="If true, save to Drafts instead of sending.")
+        ] = False,
         confirm_send: Annotated[
             bool,
-            Field(description="Required to actually send. Leave false to block accidental outbound mail."),
+            Field(
+                description="Required to actually send. Leave false to block accidental outbound mail."
+            ),
         ] = False,
     ) -> str:
         """Compose and send a new mail. Set save_only=True to save to Drafts."""
@@ -233,11 +342,19 @@ def register(mcp, bridge) -> None:
     @safe_call
     async def outlook_reply_mail(
         entry_id: Annotated[str, Field(description="EntryID of the mail to reply to.")],
-        body: Annotated[str, Field(description="Reply body. Quoted original is appended.")],
-        reply_all: Annotated[bool, Field(description="Reply to all recipients.")] = False,
+        body: Annotated[
+            str, Field(description="Reply body. Quoted original is appended.")
+        ],
+        reply_all: Annotated[
+            bool, Field(description="Reply to all recipients.")
+        ] = False,
         html: Annotated[bool, Field(description="Treat body as HTML.")] = False,
-        attachments: Annotated[Optional[list[str]], Field(description="Files to attach.")] = None,
-        save_only: Annotated[bool, Field(description="Save the reply to Drafts instead of sending.")] = False,
+        attachments: Annotated[
+            Optional[list[str]], Field(description="Files to attach.")
+        ] = None,
+        save_only: Annotated[
+            bool, Field(description="Save the reply to Drafts instead of sending.")
+        ] = False,
         confirm_send: Annotated[
             bool,
             Field(description="Required to actually send the reply."),
@@ -269,11 +386,17 @@ def register(mcp, bridge) -> None:
     @safe_call
     async def outlook_forward_mail(
         entry_id: Annotated[str, Field(description="EntryID of the mail to forward.")],
-        to: Annotated[list[str], Field(min_length=1, description="Forward recipients.")],
-        body: Annotated[str, Field(description="Optional note above the forwarded mail.")] = "",
+        to: Annotated[
+            list[str], Field(min_length=1, description="Forward recipients.")
+        ],
+        body: Annotated[
+            str, Field(description="Optional note above the forwarded mail.")
+        ] = "",
         cc: Annotated[Optional[list[str]], Field(description="CC recipients.")] = None,
         html: Annotated[bool, Field(description="Treat body as HTML.")] = False,
-        save_only: Annotated[bool, Field(description="Save the forward to Drafts instead of sending.")] = False,
+        save_only: Annotated[
+            bool, Field(description="Save the forward to Drafts instead of sending.")
+        ] = False,
         confirm_send: Annotated[
             bool,
             Field(description="Required to actually send the forward."),
@@ -304,17 +427,31 @@ def register(mcp, bridge) -> None:
     )
     @safe_call
     async def outlook_create_draft(
-        to: Annotated[Optional[list[str]], Field(description="Optional recipient addresses.")] = None,
+        to: Annotated[
+            Optional[list[str]], Field(description="Optional recipient addresses.")
+        ] = None,
         subject: Annotated[str, Field(description="Draft subject line.")] = "",
-        body: Annotated[str, Field(description="Draft body. Plain text unless html=True.")] = "",
-        cc: Annotated[Optional[list[str]], Field(description="Optional CC recipients.")] = None,
-        bcc: Annotated[Optional[list[str]], Field(description="Optional BCC recipients.")] = None,
+        body: Annotated[
+            str, Field(description="Draft body. Plain text unless html=True.")
+        ] = "",
+        cc: Annotated[
+            Optional[list[str]], Field(description="Optional CC recipients.")
+        ] = None,
+        bcc: Annotated[
+            Optional[list[str]], Field(description="Optional BCC recipients.")
+        ] = None,
         html: Annotated[bool, Field(description="Treat body as HTML.")] = False,
-        attachments: Annotated[Optional[list[str]], Field(description="Absolute paths to local files.")] = None,
-        importance: Annotated[str, Field(description="One of: 'low', 'normal', 'high'.")] = "normal",
+        attachments: Annotated[
+            Optional[list[str]], Field(description="Absolute paths to local files.")
+        ] = None,
+        importance: Annotated[
+            str, Field(description="One of: 'low', 'normal', 'high'.")
+        ] = "normal",
         categories: Annotated[
             Optional[str],
-            Field(description="Optional comma-separated categories to assign to the draft."),
+            Field(
+                description="Optional comma-separated categories to assign to the draft."
+            ),
         ] = None,
     ) -> str:
         """Create a draft in Outlook without sending it."""
@@ -345,23 +482,39 @@ def register(mcp, bridge) -> None:
     @safe_call
     async def outlook_update_draft(
         entry_id: Annotated[str, Field(description="EntryID of the draft mail item.")],
-        to: Annotated[Optional[list[str]], Field(description="Optional replacement To list.")] = None,
-        subject: Annotated[Optional[str], Field(description="Optional replacement subject line.")] = None,
-        body: Annotated[Optional[str], Field(description="Optional replacement message body.")] = None,
-        cc: Annotated[Optional[list[str]], Field(description="Optional replacement CC list.")] = None,
-        bcc: Annotated[Optional[list[str]], Field(description="Optional replacement BCC list.")] = None,
+        to: Annotated[
+            Optional[list[str]], Field(description="Optional replacement To list.")
+        ] = None,
+        subject: Annotated[
+            Optional[str], Field(description="Optional replacement subject line.")
+        ] = None,
+        body: Annotated[
+            Optional[str], Field(description="Optional replacement message body.")
+        ] = None,
+        cc: Annotated[
+            Optional[list[str]], Field(description="Optional replacement CC list.")
+        ] = None,
+        bcc: Annotated[
+            Optional[list[str]], Field(description="Optional replacement BCC list.")
+        ] = None,
         html: Annotated[
             Optional[bool],
-            Field(description="Optional body format switch. If body is provided, controls plain text vs HTML."),
+            Field(
+                description="Optional body format switch. If body is provided, controls plain text vs HTML."
+            ),
         ] = None,
         attachments_to_add: Annotated[
             Optional[list[str]],
             Field(description="Optional files to append to the draft."),
         ] = None,
-        clear_attachments: Annotated[bool, Field(description="Remove all existing attachments first.")] = False,
+        clear_attachments: Annotated[
+            bool, Field(description="Remove all existing attachments first.")
+        ] = False,
         importance: Annotated[
             Optional[str],
-            Field(description="Optional replacement importance: 'low', 'normal', or 'high'."),
+            Field(
+                description="Optional replacement importance: 'low', 'normal', or 'high'."
+            ),
         ] = None,
         categories: Annotated[
             Optional[str],
@@ -435,10 +588,16 @@ def register(mcp, bridge) -> None:
         ] = None,
         folders: Annotated[
             Optional[list[str]],
-            Field(description="Optional folders to search across. Defaults to inbox, sent, drafts, deleted."),
+            Field(
+                description="Optional folders to search across. Defaults to inbox, sent, drafts, deleted."
+            ),
         ] = None,
-        limit: Annotated[int, Field(ge=1, le=200, description="Max items to return.")] = 100,
-        response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
+        limit: Annotated[
+            int, Field(ge=1, le=200, description="Max items to return.")
+        ] = 100,
+        response_format: Annotated[
+            str, Field(description="'markdown' or 'json'.")
+        ] = "markdown",
     ) -> CallToolResult:
         """List messages in one Outlook conversation/thread across common mail folders."""
         data = await bridge.call(
@@ -502,8 +661,14 @@ def register(mcp, bridge) -> None:
     @safe_call
     async def outlook_mark_mail(
         entry_id: Annotated[str, Field(description="EntryID of the mail.")],
-        read: Annotated[Optional[bool], Field(description="True=mark read, False=unread, None=no change.")] = None,
-        flagged: Annotated[Optional[bool], Field(description="True=flag for follow-up, False=clear flag.")] = None,
+        read: Annotated[
+            Optional[bool],
+            Field(description="True=mark read, False=unread, None=no change."),
+        ] = None,
+        flagged: Annotated[
+            Optional[bool],
+            Field(description="True=flag for follow-up, False=clear flag."),
+        ] = None,
     ) -> str:
         """Toggle read state and/or follow-up flag on a mail."""
         data = await bridge.call(
@@ -524,9 +689,12 @@ def register(mcp, bridge) -> None:
     @safe_call
     async def outlook_save_attachments(
         entry_id: Annotated[str, Field(description="EntryID of the mail.")],
-        output_dir: Annotated[str, Field(description="Absolute directory under your user profile.")],
+        output_dir: Annotated[
+            str, Field(description="Absolute directory under your user profile.")
+        ],
         attachment_index: Annotated[
-            Optional[int], Field(ge=1, description="1-indexed attachment. Omit to save all.")
+            Optional[int],
+            Field(ge=1, description="1-indexed attachment. Omit to save all."),
         ] = None,
     ) -> str:
         """Save one or all attachments from a mail to a local directory."""

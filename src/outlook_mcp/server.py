@@ -22,7 +22,7 @@ server auto-launches Outlook on first call; the new "modern" Outlook
 (olk.exe) is NOT supported.
 
 Tool categories (all prefixed `outlook_`):
-  - Mail: list, search, get, send, reply, forward, create_draft,
+  - Mail: list, search, get, get_mails, send, reply, forward, create_draft,
     update_draft, send_draft, list_conversation, move, delete, mark,
     save_attachments
   - Folders: list_folders, create_folder

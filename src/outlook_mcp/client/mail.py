@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import ntpath
 import os
 from typing import Any
@@ -22,15 +23,44 @@ from outlook_mcp.utils.formatting import from_iso, to_iso, truncate
 from outlook_mcp.utils.paths import validate_attachment_path, validate_output_dir
 from outlook_mcp.utils.safety import safe_dasl
 
-WINDOWS_RESERVED_DEVICE_NAMES = {"CON", "PRN", "AUX", "NUL", "CLOCK$"} | {
-    f"COM{i}" for i in range(1, 10)
-} | {f"LPT{i}" for i in range(1, 10)}
+WINDOWS_RESERVED_DEVICE_NAMES = (
+    {"CON", "PRN", "AUX", "NUL", "CLOCK$"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
 
 # PR_SENDER_SMTP_ADDRESS — unlike urn:schemas:httpmail:fromemail, this
 # holds the real SMTP address even for Exchange senders (whose fromemail
 # is an EX:/O=... distinguished name).
 SMTP_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x5D02001F"
+TABLE_MESSAGE_FLAGS = "http://schemas.microsoft.com/mapi/proptag/0x0E070003"
+TABLE_FLAG_STATUS = "http://schemas.microsoft.com/mapi/proptag/0x10900003"
+TABLE_HAS_ATTACHMENTS = "http://schemas.microsoft.com/mapi/proptag/0x0E1B000B"
+TABLE_CONVERSATION_ID = "http://schemas.microsoft.com/mapi/proptag/0x30130102"
 DEFAULT_CONVERSATION_FOLDERS = ["inbox", "sent", "drafts", "deleted"]
+MSGFLAG_READ = 0x00000001
+MSGFLAG_UNSENT = 0x00000008
+
+logger = logging.getLogger("outlook_mcp.client.mail")
+
+_MAIL_TABLE_COLUMNS = (
+    "EntryID",
+    "MessageClass",
+    "Subject",
+    "ReceivedTime",
+    "SentOn",
+    "LastModificationTime",
+    "SenderName",
+    "SenderEmailAddress",
+    SMTP_PROPTAG,
+    "To",
+    "Importance",
+    "Categories",
+    TABLE_MESSAGE_FLAGS,
+    TABLE_FLAG_STATUS,
+    TABLE_HAS_ATTACHMENTS,
+    TABLE_CONVERSATION_ID,
+)
 
 
 def split_search_words(query: str) -> tuple[str, list[str]]:
@@ -167,11 +197,16 @@ def _mail_matches_filters(
             for part in str(_safe_get(item, "Categories", "") or "").split(",")
             if part.strip()
         ]
-        wanted_categories = [part.strip().lower() for part in categories_contains if part.strip()]
+        wanted_categories = [
+            part.strip().lower() for part in categories_contains if part.strip()
+        ]
         if not all(category in item_categories for category in wanted_categories):
             return False
 
-    if conversation_id and _safe_get(item, "ConversationID") != conversation_id:
+    if conversation_id and (
+        str(_safe_get(item, "ConversationID") or "").casefold()
+        != conversation_id.casefold()
+    ):
         return False
 
     if query:
@@ -192,9 +227,9 @@ def _require_send_confirmation(*, confirm_send: bool, action: str) -> None:
         )
 
 
-def _mail_summary(item: Any) -> dict[str, Any]:
+def _mail_summary(item: Any, *, include_preview: bool = True) -> dict[str, Any]:
     attachments = _safe_get(item, "Attachments")
-    return {
+    result = {
         "entry_id": _safe_get(item, "EntryID"),
         "conversation_id": _safe_get(item, "ConversationID"),
         "subject": _safe_get(item, "Subject", ""),
@@ -209,9 +244,251 @@ def _mail_summary(item: Any) -> dict[str, Any]:
         "importance": _safe_get(item, "Importance"),
         "categories": _safe_get(item, "Categories", "") or "",
         "folder_path": _folder_path(_safe_get(item, "Parent")),
-        "is_draft": bool(_safe_get(item, "Saved", False) and not _safe_get(item, "Sent", False)),
-        "preview": truncate(_safe_get(item, "Body", ""), 200),
+        "is_draft": bool(
+            _safe_get(item, "Saved", False) and not _safe_get(item, "Sent", False)
+        ),
     }
+    if include_preview:
+        result["preview"] = truncate(_safe_get(item, "Body", ""), 200)
+    return result
+
+
+def _row_get(row: Any, name: str, default: Any = None) -> Any:
+    try:
+        value = row.Item(name)
+    except Exception:
+        return default
+    return default if value is None else value
+
+
+def _row_binary_string(row: Any, name: str) -> str | None:
+    try:
+        value = row.BinaryToString(name)
+    except Exception:
+        value = _row_get(row, name)
+    return str(value) if value else None
+
+
+def _is_mail_message_class(value: Any) -> bool:
+    message_class = str(value or "").lower()
+    return message_class.startswith("ipm.note") or message_class.startswith(
+        "ipm.schedule.meeting.request"
+    )
+
+
+def _mail_table_rows(
+    folder: Any,
+    *,
+    filter_query: str = "",
+    additional_filters: list[str] | None = None,
+    include_preview: bool = False,
+):
+    """Yield lightweight mail summaries from Outlook's MAPI-backed Table."""
+    table = folder.GetTable(filter_query)
+    for filter_value in additional_filters or []:
+        try:
+            table = table.Restrict(filter_value)
+        except Exception:
+            logger.debug("Outlook Table.Restrict rejected: %s", filter_value)
+    table.Columns.RemoveAll()
+    added_columns: set[str] = set()
+    for column in (*_MAIL_TABLE_COLUMNS, *(("Body",) if include_preview else ())):
+        try:
+            table.Columns.Add(column)
+            added_columns.add(column)
+        except Exception:
+            logger.debug("Outlook Table column unavailable: %s", column)
+
+    mandatory_columns = {
+        "EntryID",
+        "MessageClass",
+        "ReceivedTime",
+        TABLE_MESSAGE_FLAGS,
+        TABLE_HAS_ATTACHMENTS,
+    }
+    if not mandatory_columns.issubset(added_columns):
+        raise OutlookError("Outlook Table did not expose mandatory mail columns.")
+
+    try:
+        table.Sort("ReceivedTime", True)
+    except Exception:
+        table.Sort("LastModificationTime", True)
+
+    folder_path = _folder_path(folder)
+    while not table.EndOfTable:
+        row = table.GetNextRow()
+        if not _is_mail_message_class(_row_get(row, "MessageClass")):
+            continue
+        message_flags = int(_row_get(row, TABLE_MESSAGE_FLAGS, 0) or 0)
+        timestamp = (
+            _row_get(row, "ReceivedTime")
+            or _row_get(row, "SentOn")
+            or _row_get(row, "LastModificationTime")
+        )
+        if isinstance(timestamp, dt.datetime) and timestamp.tzinfo is not None:
+            timestamp = timestamp.astimezone().replace(tzinfo=None)
+        result = {
+            "entry_id": _row_get(row, "EntryID"),
+            "conversation_id": _row_binary_string(row, TABLE_CONVERSATION_ID),
+            "subject": _row_get(row, "Subject", ""),
+            "from": _row_get(row, "SenderName"),
+            "from_address": _row_get(row, "SenderEmailAddress"),
+            "to": _row_get(row, "To", ""),
+            "received": to_iso(_row_get(row, "ReceivedTime")),
+            "sent": to_iso(_row_get(row, "SentOn")),
+            "unread": not bool(message_flags & MSGFLAG_READ),
+            "flagged": int(_row_get(row, TABLE_FLAG_STATUS, 0) or 0) == 2,
+            "has_attachments": bool(_row_get(row, TABLE_HAS_ATTACHMENTS, False)),
+            "importance": _row_get(row, "Importance"),
+            "categories": _row_get(row, "Categories", "") or "",
+            "folder_path": folder_path,
+            "is_draft": bool(message_flags & MSGFLAG_UNSENT),
+        }
+        if include_preview:
+            result["preview"] = truncate(_row_get(row, "Body", ""), 200)
+        yield timestamp, result, str(_row_get(row, SMTP_PROPTAG, "") or "")
+
+
+def _search_filter(query: str, scope: str) -> tuple[str, list[str]]:
+    if scope == "dasl":
+        return query, []
+    anchor, remaining = split_search_words(query)
+    escaped = safe_dasl(anchor)
+    if scope == "subject":
+        return (
+            f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{escaped}%'",
+            remaining,
+        )
+    if scope == "from":
+        return (
+            f"@SQL=(\"urn:schemas:httpmail:fromemail\" LIKE '%{escaped}%' OR "
+            f"\"urn:schemas:httpmail:fromname\" LIKE '%{escaped}%' OR "
+            f"\"{SMTP_PROPTAG}\" LIKE '%{escaped}%')",
+            remaining,
+        )
+    return (
+        f"@SQL=(\"urn:schemas:httpmail:subject\" LIKE '%{escaped}%' OR "
+        f"\"urn:schemas:httpmail:textdescription\" LIKE '%{escaped}%')",
+        remaining,
+    )
+
+
+def _summary_matches_filters(
+    summary: dict[str, Any],
+    *,
+    smtp_address: str = "",
+    unread_only: bool = False,
+    since_dt: dt.datetime | None = None,
+    until_dt: dt.datetime | None = None,
+    from_address: str | None = None,
+    has_attachments: bool | None = None,
+    importance: str | None = None,
+    categories_contains: list[str] | None = None,
+    conversation_id: str | None = None,
+) -> bool:
+    if unread_only and not summary["unread"]:
+        return False
+
+    item_ts = from_iso(summary.get("received") or summary.get("sent"))
+    if since_dt and item_ts and item_ts < since_dt:
+        return False
+    if until_dt and item_ts and item_ts > until_dt:
+        return False
+
+    if from_address:
+        sender = " ".join(
+            str(value or "")
+            for value in (
+                summary.get("from_address"),
+                summary.get("from"),
+                smtp_address,
+            )
+        ).lower()
+        if from_address.lower() not in sender:
+            return False
+
+    if has_attachments is not None and summary["has_attachments"] != has_attachments:
+        return False
+
+    if importance:
+        wanted = IMPORTANCE_MAP.get(importance.lower())
+        if wanted is None or summary.get("importance") != wanted:
+            return False
+
+    if categories_contains:
+        item_categories = [
+            part.strip().lower()
+            for part in str(summary.get("categories") or "").split(",")
+            if part.strip()
+        ]
+        wanted_categories = [
+            part.strip().lower() for part in categories_contains if part.strip()
+        ]
+        if not all(category in item_categories for category in wanted_categories):
+            return False
+
+    if conversation_id and (
+        str(summary.get("conversation_id") or "").casefold()
+        != conversation_id.casefold()
+    ):
+        return False
+    return True
+
+
+def _secondary_table_filters(
+    *,
+    unread_only: bool = False,
+    since_dt: dt.datetime | None = None,
+    until_dt: dt.datetime | None = None,
+    from_address: str | None = None,
+    has_attachments: bool | None = None,
+    importance: str | None = None,
+) -> list[str]:
+    filters = []
+    if unread_only:
+        filters.append('@SQL="urn:schemas:httpmail:read" = false')
+    if since_dt:
+        filters.append(f"[ReceivedTime] >= '{since_dt.strftime('%m/%d/%Y %I:%M %p')}'")
+    if until_dt:
+        filters.append(f"[ReceivedTime] <= '{until_dt.strftime('%m/%d/%Y %I:%M %p')}'")
+    if from_address:
+        escaped = safe_dasl(from_address)
+        filters.append(
+            f"@SQL=(\"urn:schemas:httpmail:fromemail\" LIKE '%{escaped}%' OR "
+            f"\"urn:schemas:httpmail:fromname\" LIKE '%{escaped}%' OR "
+            f"\"{SMTP_PROPTAG}\" LIKE '%{escaped}%')"
+        )
+    if has_attachments is not None:
+        value = "true" if has_attachments else "false"
+        filters.append(f'@SQL="urn:schemas:httpmail:hasattachment" = {value}')
+    if importance and importance.lower() in IMPORTANCE_MAP:
+        filters.append(f"[Importance] = {IMPORTANCE_MAP[importance.lower()]}")
+    return filters
+
+
+def _restrict_search_items(
+    items: Any,
+    *,
+    query_filter: str,
+    unread_only: bool,
+    since_dt: dt.datetime | None,
+    until_dt: dt.datetime | None,
+) -> Any:
+    """Best-effort server-side restriction for the legacy Items fallback."""
+    filters = [query_filter]
+    if unread_only:
+        filters.append("[UnRead] = True")
+    if since_dt:
+        filters.append(f"[ReceivedTime] >= '{since_dt.strftime('%m/%d/%Y %I:%M %p')}'")
+    if until_dt:
+        filters.append(f"[ReceivedTime] <= '{until_dt.strftime('%m/%d/%Y %I:%M %p')}'")
+    restricted = items
+    for filter_value in filters:
+        try:
+            restricted = restricted.Restrict(filter_value)
+        except Exception:
+            logger.debug("Outlook Items.Restrict rejected: %s", filter_value)
+    return restricted
 
 
 def _mail_full(
@@ -273,10 +550,9 @@ def list_mails(
     since: str | None = None,
     until: str | None = None,
     from_address: str | None = None,
+    include_preview: bool = False,
 ) -> dict[str, Any]:
     f = resolve_folder(namespace, folder)
-    items = f.Items
-    items.Sort("[ReceivedTime]", True)
 
     clauses: list[str] = []
     if unread_only:
@@ -290,27 +566,58 @@ def list_mails(
     if until_dt:
         clauses.append(f"[ReceivedTime] <= '{until_dt.strftime('%m/%d/%Y %I:%M %p')}'")
 
-    if clauses:
-        items = items.Restrict(" AND ".join(clauses))
-
     from_lower = from_address.lower() if from_address else None
     results: list[dict[str, Any]] = []
     skipped = 0
-    for item in items:
-        if not _mail_matches_filters(
-            item,
-            unread_only=unread_only,
-            since_dt=since_dt,
-            until_dt=until_dt,
-            from_address=from_lower,
+    filter_query = " AND ".join(clauses)
+
+    try:
+        for _, summary, smtp_address in _mail_table_rows(
+            f,
+            filter_query=filter_query,
+            additional_filters=_secondary_table_filters(
+                from_address=from_lower,
+            ),
+            include_preview=include_preview,
         ):
-            continue
-        if skipped < offset:
-            skipped += 1
-            continue
-        results.append(_mail_summary(item))
-        if len(results) >= limit:
-            break
+            if not _summary_matches_filters(
+                summary,
+                smtp_address=smtp_address,
+                unread_only=unread_only,
+                since_dt=since_dt,
+                until_dt=until_dt,
+                from_address=from_lower,
+            ):
+                continue
+            if skipped < offset:
+                skipped += 1
+                continue
+            results.append(summary)
+            if len(results) >= limit:
+                break
+    except Exception as exc:
+        logger.warning("GetTable failed for %s; using Items fallback: %s", f.Name, exc)
+        results.clear()
+        skipped = 0
+        items = f.Items
+        items.Sort("[ReceivedTime]", True)
+        if filter_query:
+            items = items.Restrict(filter_query)
+        for item in items:
+            if not _mail_matches_filters(
+                item,
+                unread_only=unread_only,
+                since_dt=since_dt,
+                until_dt=until_dt,
+                from_address=from_lower,
+            ):
+                continue
+            if skipped < offset:
+                skipped += 1
+                continue
+            results.append(_mail_summary(item, include_preview=include_preview))
+            if len(results) >= limit:
+                break
 
     return {
         "folder": f.Name,
@@ -340,61 +647,35 @@ def search_mails(
     importance: str | None = None,
     categories_contains: list[str] | None = None,
     conversation_id: str | None = None,
+    include_preview: bool = False,
 ) -> dict[str, Any]:
     folder_objs = _resolve_mail_folders(namespace, folder=folder, folders=folders)
     since_dt = from_iso(since)
     until_dt = from_iso(until)
     results: list[tuple[dt.datetime | None, dict[str, Any]]] = []
+    query_filter, remaining = _search_filter(query, scope)
+    query_words = [word for word in query.lower().split() if word]
 
-    simple_single_folder = (
-        len(folder_objs) == 1
-        and not unread_only
-        and since is None
-        and until is None
-        and from_address is None
-        and has_attachments is None
-        and importance is None
-        and not categories_contains
-        and conversation_id is None
-    )
-    if simple_single_folder:
-        f = folder_objs[0]
-        items = f.Items
-        items.Sort("[ReceivedTime]", True)
-        remaining: list[str] = []
-        if scope == "dasl":
-            filtered = items.Restrict(query)
-        else:
-            anchor, remaining = split_search_words(query)
-            esc = safe_dasl(anchor)
-            if scope == "subject":
-                filtered = items.Restrict(
-                    f"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{esc}%'"
-                )
-            elif scope == "from":
-                filtered = items.Restrict(
-                    f"@SQL=(\"urn:schemas:httpmail:fromemail\" LIKE '%{esc}%' OR "
-                    f"\"urn:schemas:httpmail:fromname\" LIKE '%{esc}%' OR "
-                    f"\"{SMTP_PROPTAG}\" LIKE '%{esc}%')"
-                )
-            else:
-                filtered = items.Restrict(
-                    f"@SQL=(\"urn:schemas:httpmail:subject\" LIKE '%{esc}%' OR "
-                    f"\"urn:schemas:httpmail:textdescription\" LIKE '%{esc}%')"
-                )
-        for item in filtered:
-            if not _mail_matches_filters(item, query=query, scope=scope, remaining_words=remaining):
-                continue
-            results.append((_mail_timestamp(item), _mail_summary(item)))
-            if len(results) >= limit:
-                break
-    else:
-        for folder_obj in folder_objs:
-            for item in _iter_collection(_safe_get(folder_obj, "Items")):
-                if not _mail_matches_filters(
-                    item,
-                    query=query,
-                    scope=scope,
+    for folder_obj in folder_objs:
+        folder_results: list[tuple[dt.datetime | None, dict[str, Any]]] = []
+        try:
+            rows = _mail_table_rows(
+                folder_obj,
+                filter_query=query_filter,
+                additional_filters=_secondary_table_filters(
+                    unread_only=unread_only,
+                    since_dt=since_dt,
+                    until_dt=until_dt,
+                    from_address=from_address,
+                    has_attachments=has_attachments,
+                    importance=importance,
+                ),
+                include_preview=include_preview or scope == "subject_body",
+            )
+            for timestamp, summary, smtp_address in rows:
+                if not _summary_matches_filters(
+                    summary,
+                    smtp_address=smtp_address,
                     unread_only=unread_only,
                     since_dt=since_dt,
                     until_dt=until_dt,
@@ -405,12 +686,93 @@ def search_mails(
                     conversation_id=conversation_id,
                 ):
                     continue
-                results.append((_mail_timestamp(item), _mail_summary(item)))
-        results.sort(
-            key=lambda pair: pair[0] or dt.datetime.min,
-            reverse=True,
-        )
-        results = results[:limit]
+
+                if scope == "subject":
+                    if not all(
+                        word in str(summary.get("subject") or "").lower()
+                        for word in query_words
+                    ):
+                        continue
+                elif scope == "from":
+                    sender = " ".join(
+                        str(value or "")
+                        for value in (
+                            summary.get("from"),
+                            summary.get("from_address"),
+                            smtp_address,
+                        )
+                    ).lower()
+                    if not all(word in sender for word in query_words):
+                        continue
+                elif scope == "subject_body":
+                    haystack = " ".join(
+                        (
+                            str(summary.get("subject") or ""),
+                            str(summary.get("preview") or ""),
+                        )
+                    ).lower()
+                    if not all(word in haystack for word in query_words):
+                        item = get_item_by_id(namespace, summary["entry_id"])
+                        if not _mail_matches_filters(
+                            item,
+                            query=query,
+                            scope=scope,
+                            remaining_words=remaining,
+                        ):
+                            continue
+
+                if not include_preview:
+                    summary.pop("preview", None)
+                folder_results.append((timestamp, summary))
+                if len(folder_objs) == 1 and len(folder_results) >= limit:
+                    break
+        except Exception as exc:
+            logger.warning(
+                "GetTable search failed for %s; using Items fallback: %s",
+                folder_obj.Name,
+                exc,
+            )
+            folder_results.clear()
+            items = _safe_get(folder_obj, "Items")
+            items.Sort("[ReceivedTime]", True)
+            filtered = _restrict_search_items(
+                items,
+                query_filter=query_filter,
+                unread_only=unread_only,
+                since_dt=since_dt,
+                until_dt=until_dt,
+            )
+            for item in _iter_collection(filtered):
+                if not _mail_matches_filters(
+                    item,
+                    query=query,
+                    scope=scope,
+                    remaining_words=remaining,
+                    unread_only=unread_only,
+                    since_dt=since_dt,
+                    until_dt=until_dt,
+                    from_address=from_address,
+                    has_attachments=has_attachments,
+                    importance=importance,
+                    categories_contains=categories_contains,
+                    conversation_id=conversation_id,
+                ):
+                    continue
+                folder_results.append(
+                    (
+                        _mail_timestamp(item),
+                        _mail_summary(item, include_preview=include_preview),
+                    )
+                )
+                if len(folder_objs) == 1 and len(folder_results) >= limit:
+                    break
+        results.extend(folder_results)
+
+    results.sort(
+        key=lambda pair: pair[0] or dt.datetime.min,
+        reverse=True,
+    )
+    results = results[:limit]
 
     items_out = [item for _, item in results]
     return {
@@ -438,6 +800,36 @@ def get_mail(
         include_html=include_html,
         max_body_chars=max_body_chars,
     )
+
+
+def get_mails(
+    outlook: Any,
+    namespace: Any,
+    *,
+    entry_ids: list[str],
+    include_body: bool = False,
+    include_html: bool = False,
+    max_body_chars: int = 10000,
+) -> dict[str, Any]:
+    items = []
+    errors = []
+    for entry_id in entry_ids:
+        try:
+            items.append(
+                _mail_full(
+                    get_item_by_id(namespace, entry_id),
+                    include_body=include_body,
+                    include_html=include_html,
+                    max_body_chars=max_body_chars,
+                )
+            )
+        except OutlookError as exc:
+            errors.append({"entry_id": entry_id, "error": str(exc)})
+    return {
+        "count": len(items),
+        "items": items,
+        "errors": errors,
+    }
 
 
 def send_mail(
@@ -635,7 +1027,9 @@ def update_draft(
 ) -> dict[str, Any]:
     item = get_item_by_id(namespace, entry_id)
     if bool(_safe_get(item, "Sent", False)):
-        raise OutlookError("This draft has already been sent and can no longer be updated.")
+        raise OutlookError(
+            "This draft has already been sent and can no longer be updated."
+        )
     if to is not None:
         item.To = "; ".join(to)
     if cc is not None:
@@ -689,9 +1083,21 @@ def send_draft(
         raise OutlookError("This draft has already been sent.")
     _require_send_confirmation(confirm_send=confirm_send, action="Sending draft")
     subject = _safe_get(item, "Subject", "")
-    to = [part.strip() for part in str(_safe_get(item, "To", "") or "").split(";") if part.strip()]
-    cc = [part.strip() for part in str(_safe_get(item, "CC", "") or "").split(";") if part.strip()]
-    bcc = [part.strip() for part in str(_safe_get(item, "BCC", "") or "").split(";") if part.strip()]
+    to = [
+        part.strip()
+        for part in str(_safe_get(item, "To", "") or "").split(";")
+        if part.strip()
+    ]
+    cc = [
+        part.strip()
+        for part in str(_safe_get(item, "CC", "") or "").split(";")
+        if part.strip()
+    ]
+    bcc = [
+        part.strip()
+        for part in str(_safe_get(item, "BCC", "") or "").split(";")
+        if part.strip()
+    ]
     item.Send()
     return {
         "status": "sent",
@@ -715,7 +1121,9 @@ def list_conversation(
     if not conversation_id:
         if not entry_id:
             raise OutlookError("Provide either entry_id or conversation_id.")
-        conversation_id = _safe_get(get_item_by_id(namespace, entry_id), "ConversationID")
+        conversation_id = _safe_get(
+            get_item_by_id(namespace, entry_id), "ConversationID"
+        )
     if not conversation_id:
         raise OutlookError("The referenced mail has no conversation_id.")
 
@@ -738,7 +1146,9 @@ def list_conversation(
     }
 
 
-def move_mail(outlook: Any, namespace: Any, *, entry_id: str, target_folder: str) -> dict[str, Any]:
+def move_mail(
+    outlook: Any, namespace: Any, *, entry_id: str, target_folder: str
+) -> dict[str, Any]:
     item = get_item_by_id(namespace, entry_id)
     target = resolve_folder(namespace, target_folder)
     moved = item.Move(target)
@@ -809,8 +1219,7 @@ def save_attachments(
             )
         if ":" in raw:
             raise OutlookError(
-                f"Attachment filename contains colon "
-                f"(rejected for safety): {raw!r}"
+                f"Attachment filename contains colon (rejected for safety): {raw!r}"
             )
         # Defense in depth: basename should be a no-op after the checks
         # above, but use it anyway in case ntpath sees something we missed.
