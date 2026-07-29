@@ -42,6 +42,43 @@ class FakeAddressCondition:
         self.Address = list(address or [])
 
 
+class FakeRecipient:
+    def __init__(self, value: str, resolved: bool = True):
+        self.Name = value
+        self.Address = value
+        self.Resolved = resolved
+
+
+class FakeRecipients:
+    def __init__(self, unresolved: set[str] | None = None):
+        self._items: list[FakeRecipient] = []
+        self._unresolved = unresolved or set()
+
+    @property
+    def Count(self) -> int:
+        return len(self._items)
+
+    def Add(self, value: str) -> FakeRecipient:
+        recipient = FakeRecipient(value, resolved=value not in self._unresolved)
+        self._items.append(recipient)
+        return recipient
+
+    def Item(self, index: int) -> FakeRecipient:
+        return self._items[index - 1]
+
+    def Remove(self, index: int) -> None:
+        del self._items[index - 1]
+
+    def ResolveAll(self) -> bool:
+        return all(recipient.Resolved for recipient in self._items)
+
+
+class FakeRecipientCondition:
+    def __init__(self):
+        self.Enabled = False
+        self.Recipients = FakeRecipients()
+
+
 class FakeFolderAction:
     def __init__(self, enabled: bool = False, folder: FakeFolder | None = None):
         self.Enabled = enabled
@@ -62,6 +99,8 @@ class FakeRuleAction:
 class FakeConditions:
     def __init__(self):
         self.SenderAddress = FakeAddressCondition()
+        self.SentTo = FakeRecipientCondition()
+        self.ToMe = FakeRuleAction()
         self.Subject = FakeTextCondition()
         self.Body = FakeTextCondition()
 
@@ -166,7 +205,11 @@ def _namespace_with_rules(items: list[FakeRule] | None = None):
         Stores=[store],
         GetDefaultFolder=lambda folder_id: inbox,
     )
-    return namespace, rules, {"root": root, "inbox": inbox, "projects": projects, "archive": archive}
+    return (
+        namespace,
+        rules,
+        {"root": root, "inbox": inbox, "projects": projects, "archive": archive},
+    )
 
 
 def test_list_rules_includes_supported_details():
@@ -296,6 +339,90 @@ def test_create_rule_can_set_order_and_exceptions():
     assert rules.Item(2).Name == "Inserted"
     assert rules.Item(2).Exceptions.Body.Text == ["skip"]
     assert rules.Item(2).Actions.Stop.Enabled is True
+
+
+def test_create_rule_supports_recipient_alias_with_to_me_exception():
+    namespace, rules, _ = _namespace_with_rules()
+
+    payload = rules_client.create_rule(
+        None,
+        namespace,
+        name="Administratif ABM",
+        sent_to_recipients=["administratif@example.com"],
+        except_to_me=True,
+        assign_categories=["Administratif"],
+    )
+
+    created = rules.Item(1)
+    assert payload["rule"]["supported_conditions"]["sent_to_recipients"] == [
+        "administratif@example.com"
+    ]
+    assert payload["rule"]["supported_exceptions"]["to_me"] is True
+    assert created.Conditions.SentTo.Enabled is True
+    assert created.Conditions.SentTo.Recipients.Item(1).Address == (
+        "administratif@example.com"
+    )
+    assert created.Exceptions.ToMe.Enabled is True
+
+
+def test_update_rule_can_replace_and_clear_recipient_filters():
+    rule = FakeRule("Alias")
+    rule.Conditions.SentTo.Recipients.Add("old@example.com")
+    rule.Conditions.SentTo.Enabled = True
+    rule.Exceptions.ToMe.Enabled = True
+    namespace, rules, _ = _namespace_with_rules([rule])
+    rule.Actions.AssignToCategory.Enabled = True
+    rule.Actions.AssignToCategory.Categories = ["Alias"]
+
+    payload = rules_client.update_rule(
+        None,
+        namespace,
+        rule_name="Alias",
+        sent_to_recipients=["new@example.com"],
+        except_to_me=False,
+    )
+
+    updated = rules.Item(1)
+    assert payload["rule"]["supported_conditions"]["sent_to_recipients"] == [
+        "new@example.com"
+    ]
+    assert updated.Conditions.SentTo.Recipients.Count == 1
+    assert updated.Exceptions.ToMe.Enabled is False
+
+    rules_client.update_rule(
+        None,
+        namespace,
+        rule_name="Alias",
+        sent_to_recipients=[],
+        subject_contains=["fallback"],
+    )
+    assert updated.Conditions.SentTo.Enabled is False
+    assert updated.Conditions.SentTo.Recipients.Count == 0
+
+
+def test_create_rule_rejects_unresolved_recipient_alias():
+    namespace, rules, _ = _namespace_with_rules()
+    rule = rules.Create("Prepared", OL_RULE_RECEIVE)
+    rule.Conditions.SentTo.Recipients._unresolved.add("unknown-alias")
+    rules.Remove("Prepared")
+
+    original_create = rules.Create
+
+    def create_with_unresolved_recipient(name: str, rule_type: int) -> FakeRule:
+        created = original_create(name, rule_type)
+        created.Conditions.SentTo.Recipients._unresolved.add("unknown-alias")
+        return created
+
+    rules.Create = create_with_unresolved_recipient
+
+    with pytest.raises(OutlookError, match="unknown-alias"):
+        rules_client.create_rule(
+            None,
+            namespace,
+            name="Broken alias",
+            sent_to_recipients=["unknown-alias"],
+            assign_categories=["Review"],
+        )
 
 
 def test_delete_rule_removes_rule_by_name():

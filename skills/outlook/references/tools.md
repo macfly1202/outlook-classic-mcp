@@ -480,18 +480,22 @@ This change is live the moment it's saved — no staging buffer. Confirm the rul
 
 ### `outlook_create_rule`
 
-Creates a **receive rule** using the supported COM-safe subset: sender-address / subject / body conditions and move/copy/assign-category actions.
+Creates a **receive rule** using the supported COM-safe subset: sender-address, recipient/alias, current-mailbox-in-To, subject, and body conditions plus move/copy/assign-category actions.
 
 | Param                     | Type         | Default | Notes |
 | ------------------------- | ------------ | ------- | ----- |
 | `name`                    | string       | required | Display name for the rule. |
 | `sender_address_contains` | list[string] | `null`  | Optional OR-match sender substrings. |
+| `sent_to_recipients`      | list[string] | `null`  | Optional recipients in To or Cc; names, aliases, or SMTP addresses must resolve in Outlook. |
+| `to_me`                   | bool         | `null`  | Require the current mailbox to appear in To. |
 | `subject_contains`        | list[string] | `null`  | Optional OR-match subject substrings. |
 | `body_contains`           | list[string] | `null`  | Optional OR-match body substrings. |
 | `move_to_folder`          | string       | `null`  | Optional move target folder path/name. |
 | `copy_to_folder`          | string       | `null`  | Optional copy target folder path/name. |
 | `assign_categories`       | list[string] | `null`  | Optional category names to assign. |
 | `except_sender_address_contains` | list[string] | `null` | Sender substrings that block the rule. |
+| `except_sent_to_recipients` | list[string] | `null` | Recipients in To or Cc that block the rule. |
+| `except_to_me`            | bool         | `null`  | Block the rule when the current mailbox appears in To. |
 | `except_subject_contains` | list[string] | `null`  | Subject substrings that block the rule. |
 | `except_body_contains`    | list[string] | `null`  | Body substrings that block the rule. |
 | `stop_processing_more_rules` | bool      | `false` | Stop later rules after this one matches. |
@@ -499,6 +503,17 @@ Creates a **receive rule** using the supported COM-safe subset: sender-address /
 | `enabled`                 | bool         | `true`  | Whether the new rule starts enabled. |
 
 At least one supported condition and one supported action are required.
+
+Example for "sent to the administrative alias, except when I am directly in To":
+
+```json
+{
+  "name": "Administratif ABM",
+  "sent_to_recipients": ["administratif@example.com"],
+  "except_to_me": true,
+  "move_to_folder": "Inbox/Administratif"
+}
+```
 
 ### `outlook_update_rule`
 
@@ -510,12 +525,16 @@ Updates a rule's supported editable fields in place.
 | `new_name`                | string       | `null`  | Rename the rule. |
 | `enabled`                 | bool         | `null`  | Toggle on/off; omit to leave unchanged. |
 | `sender_address_contains` | list[string] | `null`  | Replace sender substrings; pass `[]` to clear. |
+| `sent_to_recipients`      | list[string] | `null`  | Replace recipients matched in To or Cc; pass `[]` to clear. |
+| `to_me`                   | bool         | `null`  | Enable/disable the current-mailbox-in-To condition. |
 | `subject_contains`        | list[string] | `null`  | Replace subject substrings; pass `[]` to clear. |
 | `body_contains`           | list[string] | `null`  | Replace body substrings; pass `[]` to clear. |
 | `move_to_folder`          | string       | `null`  | Replace move target folder. |
 | `copy_to_folder`          | string       | `null`  | Replace copy target folder. |
 | `assign_categories`       | list[string] | `null`  | Replace assigned categories; pass `[]` to clear. |
 | `except_sender_address_contains` | list[string] | `null` | Replace sender exceptions; pass `[]` to clear. |
+| `except_sent_to_recipients` | list[string] | `null` | Replace recipient exceptions; pass `[]` to clear. |
+| `except_to_me`            | bool         | `null`  | Enable/disable the current-mailbox-in-To exception. |
 | `except_subject_contains` | list[string] | `null`  | Replace subject exceptions; pass `[]` to clear. |
 | `except_body_contains`    | list[string] | `null`  | Replace body exceptions; pass `[]` to clear. |
 | `clear_move_to_folder`    | bool         | `false` | Disable the move action entirely. |

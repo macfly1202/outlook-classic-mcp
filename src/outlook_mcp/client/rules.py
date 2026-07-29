@@ -5,8 +5,8 @@ collection; ``Save()`` on the collection persists changes.
 
 Programmatic rule creation in Outlook has only partial parity with the
 Rules UI. This module intentionally exposes the most reliable subset:
-receive rules with sender-address / subject / body conditions and
-move/copy actions.
+receive rules with sender-address / recipient / subject / body conditions
+and move/copy/category actions.
 """
 
 from __future__ import annotations
@@ -89,6 +89,54 @@ def _set_address_condition(condition: Any, values: list[str]) -> None:
             pass
 
 
+def _recipient_values(condition: Any) -> list[str]:
+    recipients = _safe_get(condition, "Recipients")
+    if recipients is None:
+        return []
+    values = []
+    for index in range(1, int(_safe_get(recipients, "Count") or 0) + 1):
+        recipient = recipients.Item(index)
+        value = _safe_get(recipient, "Address") or _safe_get(recipient, "Name")
+        if value:
+            values.append(str(value))
+    return values
+
+
+def _clear_recipients(recipients: Any) -> None:
+    while int(_safe_get(recipients, "Count") or 0):
+        recipients.Remove(1)
+
+
+def _set_recipient_condition(condition: Any, values: list[str]) -> None:
+    recipients = condition.Recipients
+    condition.Enabled = False
+    _clear_recipients(recipients)
+    if not values:
+        return
+
+    for value in values:
+        recipients.Add(value)
+    if not recipients.ResolveAll():
+        unresolved = []
+        for index in range(1, int(recipients.Count) + 1):
+            recipient = recipients.Item(index)
+            if not bool(_safe_get(recipient, "Resolved")):
+                unresolved.append(
+                    str(
+                        _safe_get(recipient, "Name")
+                        or _safe_get(recipient, "Address")
+                        or values[index - 1]
+                    )
+                )
+        _clear_recipients(recipients)
+        raise OutlookError(
+            "Outlook could not resolve these rule recipients: "
+            + ", ".join(unresolved or values)
+            + ". Use a resolvable display name, alias, or full SMTP address."
+        )
+    condition.Enabled = True
+
+
 def _set_folder_action(namespace: Any, action: Any, folder_spec: str | None) -> None:
     if folder_spec:
         action.Folder = resolve_folder(namespace, folder_spec)
@@ -106,6 +154,8 @@ def _apply_supported_config(
     target: Any,
     *,
     sender_address_contains: list[str] | None = None,
+    sent_to_recipients: list[str] | None = None,
+    to_me: bool | None = None,
     subject_contains: list[str] | None = None,
     body_contains: list[str] | None = None,
     move_to_folder: str | None = None,
@@ -120,23 +170,33 @@ def _apply_supported_config(
         _set_address_condition(
             target.SenderAddress, _clean_terms(sender_address_contains)
         )
+    if sent_to_recipients is not None:
+        _set_recipient_condition(target.SentTo, _clean_terms(sent_to_recipients))
+    if to_me is not None:
+        target.ToMe.Enabled = to_me
     if subject_contains is not None:
         _set_text_condition(target.Subject, _clean_terms(subject_contains))
     if body_contains is not None:
         _set_text_condition(target.Body, _clean_terms(body_contains))
-    if hasattr(target, "MoveToFolder") and (move_to_folder is not None or clear_move_to_folder):
+    if hasattr(target, "MoveToFolder") and (
+        move_to_folder is not None or clear_move_to_folder
+    ):
         _set_folder_action(
             namespace,
             target.MoveToFolder,
             None if clear_move_to_folder else move_to_folder,
         )
-    if hasattr(target, "CopyToFolder") and (copy_to_folder is not None or clear_copy_to_folder):
+    if hasattr(target, "CopyToFolder") and (
+        copy_to_folder is not None or clear_copy_to_folder
+    ):
         _set_folder_action(
             namespace,
             target.CopyToFolder,
             None if clear_copy_to_folder else copy_to_folder,
         )
-    if hasattr(target, "AssignToCategory") and (assign_categories is not None or clear_assign_categories):
+    if hasattr(target, "AssignToCategory") and (
+        assign_categories is not None or clear_assign_categories
+    ):
         categories = _clean_terms(assign_categories)
         action = target.AssignToCategory
         if clear_assign_categories or not categories:
@@ -163,6 +223,8 @@ def _rule_type_label(rule: Any) -> str:
 
 def _rule_summary(index: int, rule: Any) -> dict[str, Any]:
     sender_condition = rule.Conditions.SenderAddress
+    sent_to_condition = rule.Conditions.SentTo
+    to_me_condition = rule.Conditions.ToMe
     subject_condition = rule.Conditions.Subject
     body_condition = rule.Conditions.Body
     move_action = rule.Actions.MoveToFolder
@@ -181,6 +243,10 @@ def _rule_summary(index: int, rule: Any) -> dict[str, Any]:
             )
             if _safe_get(sender_condition, "Enabled")
             else [],
+            "sent_to_recipients": _recipient_values(sent_to_condition)
+            if _safe_get(sent_to_condition, "Enabled")
+            else [],
+            "to_me": bool(_safe_get(to_me_condition, "Enabled")),
             "subject_contains": _as_string_list(_safe_get(subject_condition, "Text"))
             if _safe_get(subject_condition, "Enabled")
             else [],
@@ -194,7 +260,13 @@ def _rule_summary(index: int, rule: Any) -> dict[str, Any]:
             )
             if _safe_get(rule.Exceptions.SenderAddress, "Enabled")
             else [],
-            "subject_contains": _as_string_list(_safe_get(rule.Exceptions.Subject, "Text"))
+            "sent_to_recipients": _recipient_values(rule.Exceptions.SentTo)
+            if _safe_get(rule.Exceptions.SentTo, "Enabled")
+            else [],
+            "to_me": bool(_safe_get(rule.Exceptions.ToMe, "Enabled")),
+            "subject_contains": _as_string_list(
+                _safe_get(rule.Exceptions.Subject, "Text")
+            )
             if _safe_get(rule.Exceptions.Subject, "Enabled")
             else [],
             "body_contains": _as_string_list(_safe_get(rule.Exceptions.Body, "Text"))
@@ -208,7 +280,9 @@ def _rule_summary(index: int, rule: Any) -> dict[str, Any]:
             "copy_to_folder": _folder_label(_safe_get(copy_action, "Folder"))
             if _safe_get(copy_action, "Enabled")
             else None,
-            "assign_categories": _as_string_list(_safe_get(category_action, "Categories"))
+            "assign_categories": _as_string_list(
+                _safe_get(category_action, "Categories")
+            )
             if _safe_get(category_action, "Enabled")
             else [],
             "stop_processing_more_rules": bool(_safe_get(stop_action, "Enabled")),
@@ -219,6 +293,8 @@ def _rule_summary(index: int, rule: Any) -> dict[str, Any]:
 def _validate_supported_rule_shape(rule: Any) -> None:
     supported_conditions = (
         bool(_safe_get(rule.Conditions.SenderAddress, "Enabled"))
+        or bool(_safe_get(rule.Conditions.SentTo, "Enabled"))
+        or bool(_safe_get(rule.Conditions.ToMe, "Enabled"))
         or bool(_safe_get(rule.Conditions.Subject, "Enabled"))
         or bool(_safe_get(rule.Conditions.Body, "Enabled"))
     )
@@ -230,7 +306,7 @@ def _validate_supported_rule_shape(rule: Any) -> None:
     if not supported_conditions:
         raise OutlookError(
             "At least one supported condition is required: sender_address_contains, "
-            "subject_contains, or body_contains."
+            "sent_to_recipients, to_me, subject_contains, or body_contains."
         )
     if not supported_actions:
         raise OutlookError(
@@ -269,12 +345,16 @@ def create_rule(
     name: str,
     enabled: bool = True,
     sender_address_contains: list[str] | None = None,
+    sent_to_recipients: list[str] | None = None,
+    to_me: bool | None = None,
     subject_contains: list[str] | None = None,
     body_contains: list[str] | None = None,
     move_to_folder: str | None = None,
     copy_to_folder: str | None = None,
     assign_categories: list[str] | None = None,
     except_sender_address_contains: list[str] | None = None,
+    except_sent_to_recipients: list[str] | None = None,
+    except_to_me: bool | None = None,
     except_subject_contains: list[str] | None = None,
     except_body_contains: list[str] | None = None,
     stop_processing_more_rules: bool = False,
@@ -286,6 +366,8 @@ def create_rule(
         namespace,
         rule.Conditions,
         sender_address_contains=sender_address_contains,
+        sent_to_recipients=sent_to_recipients,
+        to_me=to_me,
         subject_contains=subject_contains,
         body_contains=body_contains,
     )
@@ -293,6 +375,8 @@ def create_rule(
         namespace,
         rule.Exceptions,
         sender_address_contains=except_sender_address_contains,
+        sent_to_recipients=except_sent_to_recipients,
+        to_me=except_to_me,
         subject_contains=except_subject_contains,
         body_contains=except_body_contains,
     )
@@ -324,12 +408,16 @@ def update_rule(
     new_name: str | None = None,
     enabled: bool | None = None,
     sender_address_contains: list[str] | None = None,
+    sent_to_recipients: list[str] | None = None,
+    to_me: bool | None = None,
     subject_contains: list[str] | None = None,
     body_contains: list[str] | None = None,
     move_to_folder: str | None = None,
     copy_to_folder: str | None = None,
     assign_categories: list[str] | None = None,
     except_sender_address_contains: list[str] | None = None,
+    except_sent_to_recipients: list[str] | None = None,
+    except_to_me: bool | None = None,
     except_subject_contains: list[str] | None = None,
     except_body_contains: list[str] | None = None,
     clear_move_to_folder: bool = False,
@@ -353,6 +441,8 @@ def update_rule(
         namespace,
         rule.Conditions,
         sender_address_contains=sender_address_contains,
+        sent_to_recipients=sent_to_recipients,
+        to_me=to_me,
         subject_contains=subject_contains,
         body_contains=body_contains,
     )
@@ -360,6 +450,8 @@ def update_rule(
         namespace,
         rule.Exceptions,
         sender_address_contains=except_sender_address_contains,
+        sent_to_recipients=except_sent_to_recipients,
+        to_me=except_to_me,
         subject_contains=except_subject_contains,
         body_contains=except_body_contains,
     )

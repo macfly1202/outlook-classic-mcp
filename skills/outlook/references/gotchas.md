@@ -30,6 +30,12 @@ All datetimes the integration returns are in the **user's local timezone with an
 
 **Always**: `outlook_list_rules` first → confirm the **exact** rule name and target behavior with the user → only then mutate the rule.
 
+## A recipient alias cannot be added to a rule
+
+`sent_to_recipients` and `except_sent_to_recipients` use Outlook's address-book resolution. A display name, Exchange alias, or full SMTP address is accepted only if Outlook can resolve it. An unresolved value aborts the tool call instead of saving an ambiguous recipient condition.
+
+**Fix**: use the full SMTP address when possible. For "sent to an alias, except when I am directly in To", combine `sent_to_recipients=["alias@example.com"]` with `except_to_me=true`.
+
 ## "Set my OOO to on for the next two weeks" — and it just doesn't
 
 The integration has `outlook_get_out_of_office` (read state) but no tool to set it. The auto-reply state lives in an Exchange property that requires EWS or Graph to write, neither of which the integration uses.

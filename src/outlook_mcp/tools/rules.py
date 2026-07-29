@@ -24,7 +24,9 @@ def register(mcp, bridge) -> None:
     )
     @safe_call
     async def outlook_list_rules(
-        response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
+        response_format: Annotated[
+            str, Field(description="'markdown' or 'json'.")
+        ] = "markdown",
     ) -> str:
         """List all mail rules with status and supported editable fields."""
         data = await bridge.call(rules_client.list_rules)
@@ -44,9 +46,13 @@ def register(mcp, bridge) -> None:
     async def outlook_toggle_rule(
         rule_name: Annotated[
             str,
-            Field(min_length=1, description="Exact rule name (use outlook_list_rules)."),
+            Field(
+                min_length=1, description="Exact rule name (use outlook_list_rules)."
+            ),
         ],
-        enabled: Annotated[bool, Field(description="True to enable, False to disable.")],
+        enabled: Annotated[
+            bool, Field(description="True to enable, False to disable.")
+        ],
     ) -> str:
         """Enable or disable a mail rule by name. Modifies live mail rules."""
         data = await bridge.call(
@@ -66,16 +72,30 @@ def register(mcp, bridge) -> None:
     )
     @safe_call
     async def outlook_create_rule(
-        name: Annotated[str, Field(min_length=1, description="Display name for the new rule.")],
+        name: Annotated[
+            str, Field(min_length=1, description="Display name for the new rule.")
+        ],
         sender_address_contains: Annotated[
             Optional[list[str]],
             Field(
                 description="Optional sender-address substrings. Match is OR across values."
             ),
         ] = None,
+        sent_to_recipients: Annotated[
+            Optional[list[str]],
+            Field(
+                description="Optional recipients in To or Cc. Accepts resolvable names, aliases, or SMTP addresses; match is OR."
+            ),
+        ] = None,
+        to_me: Annotated[
+            Optional[bool],
+            Field(description="Require the current mailbox to appear in the To field."),
+        ] = None,
         subject_contains: Annotated[
             Optional[list[str]],
-            Field(description="Optional subject substrings. Match is OR across values."),
+            Field(
+                description="Optional subject substrings. Match is OR across values."
+            ),
         ] = None,
         body_contains: Annotated[
             Optional[list[str]],
@@ -95,37 +115,63 @@ def register(mcp, bridge) -> None:
         ] = None,
         except_sender_address_contains: Annotated[
             Optional[list[str]],
-            Field(description="Optional sender substrings that prevent the rule from firing."),
+            Field(
+                description="Optional sender substrings that prevent the rule from firing."
+            ),
+        ] = None,
+        except_sent_to_recipients: Annotated[
+            Optional[list[str]],
+            Field(
+                description="Recipients in To or Cc that prevent the rule from firing."
+            ),
+        ] = None,
+        except_to_me: Annotated[
+            Optional[bool],
+            Field(
+                description="Prevent the rule from firing when the current mailbox is in To."
+            ),
         ] = None,
         except_subject_contains: Annotated[
             Optional[list[str]],
-            Field(description="Optional subject substrings that prevent the rule from firing."),
+            Field(
+                description="Optional subject substrings that prevent the rule from firing."
+            ),
         ] = None,
         except_body_contains: Annotated[
             Optional[list[str]],
-            Field(description="Optional body substrings that prevent the rule from firing."),
+            Field(
+                description="Optional body substrings that prevent the rule from firing."
+            ),
         ] = None,
         stop_processing_more_rules: Annotated[
             bool,
-            Field(description="Stop Outlook from evaluating later rules after this one matches."),
+            Field(
+                description="Stop Outlook from evaluating later rules after this one matches."
+            ),
         ] = False,
         execution_order: Annotated[
             Optional[int],
             Field(ge=1, description="Optional execution order among all rules."),
         ] = None,
-        enabled: Annotated[bool, Field(description="Whether the new rule starts enabled.")] = True,
+        enabled: Annotated[
+            bool, Field(description="Whether the new rule starts enabled.")
+        ] = True,
     ) -> str:
         """Create a receive rule using supported COM-editable conditions and actions."""
         data = await bridge.call(
             rules_client.create_rule,
             name=name,
             sender_address_contains=sender_address_contains,
+            sent_to_recipients=sent_to_recipients,
+            to_me=to_me,
             subject_contains=subject_contains,
             body_contains=body_contains,
             move_to_folder=move_to_folder,
             copy_to_folder=copy_to_folder,
             assign_categories=assign_categories,
             except_sender_address_contains=except_sender_address_contains,
+            except_sent_to_recipients=except_sent_to_recipients,
+            except_to_me=except_to_me,
             except_subject_contains=except_subject_contains,
             except_body_contains=except_body_contains,
             stop_processing_more_rules=stop_processing_more_rules,
@@ -148,7 +194,10 @@ def register(mcp, bridge) -> None:
     async def outlook_update_rule(
         rule_name: Annotated[
             str,
-            Field(min_length=1, description="Exact current rule name (use outlook_list_rules)."),
+            Field(
+                min_length=1,
+                description="Exact current rule name (use outlook_list_rules).",
+            ),
         ],
         new_name: Annotated[
             Optional[str],
@@ -164,13 +213,27 @@ def register(mcp, bridge) -> None:
                 description="Replace sender-address substrings. Pass [] to clear this condition."
             ),
         ] = None,
+        sent_to_recipients: Annotated[
+            Optional[list[str]],
+            Field(
+                description="Replace recipients matched in To or Cc; pass [] to clear."
+            ),
+        ] = None,
+        to_me: Annotated[
+            Optional[bool],
+            Field(description="Enable or disable the current-mailbox-in-To condition."),
+        ] = None,
         subject_contains: Annotated[
             Optional[list[str]],
-            Field(description="Replace subject substrings. Pass [] to clear this condition."),
+            Field(
+                description="Replace subject substrings. Pass [] to clear this condition."
+            ),
         ] = None,
         body_contains: Annotated[
             Optional[list[str]],
-            Field(description="Replace body substrings. Pass [] to clear this condition."),
+            Field(
+                description="Replace body substrings. Pass [] to clear this condition."
+            ),
         ] = None,
         move_to_folder: Annotated[
             Optional[str],
@@ -182,11 +245,21 @@ def register(mcp, bridge) -> None:
         ] = None,
         assign_categories: Annotated[
             Optional[list[str]],
-            Field(description="Replace assigned categories. Pass [] to clear this action."),
+            Field(
+                description="Replace assigned categories. Pass [] to clear this action."
+            ),
         ] = None,
         except_sender_address_contains: Annotated[
             Optional[list[str]],
             Field(description="Replace sender exceptions. Pass [] to clear."),
+        ] = None,
+        except_sent_to_recipients: Annotated[
+            Optional[list[str]],
+            Field(description="Replace recipient exceptions; pass [] to clear."),
+        ] = None,
+        except_to_me: Annotated[
+            Optional[bool],
+            Field(description="Enable or disable the current-mailbox-in-To exception."),
         ] = None,
         except_subject_contains: Annotated[
             Optional[list[str]],
@@ -224,12 +297,16 @@ def register(mcp, bridge) -> None:
             new_name=new_name,
             enabled=enabled,
             sender_address_contains=sender_address_contains,
+            sent_to_recipients=sent_to_recipients,
+            to_me=to_me,
             subject_contains=subject_contains,
             body_contains=body_contains,
             move_to_folder=move_to_folder,
             copy_to_folder=copy_to_folder,
             assign_categories=assign_categories,
             except_sender_address_contains=except_sender_address_contains,
+            except_sent_to_recipients=except_sent_to_recipients,
+            except_to_me=except_to_me,
             except_subject_contains=except_subject_contains,
             except_body_contains=except_body_contains,
             clear_move_to_folder=clear_move_to_folder,
@@ -254,7 +331,10 @@ def register(mcp, bridge) -> None:
     async def outlook_delete_rule(
         rule_name: Annotated[
             str,
-            Field(min_length=1, description="Exact current rule name (use outlook_list_rules)."),
+            Field(
+                min_length=1,
+                description="Exact current rule name (use outlook_list_rules).",
+            ),
         ],
     ) -> str:
         """Delete a live Outlook mail rule by name."""

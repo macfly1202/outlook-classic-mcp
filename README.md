@@ -179,7 +179,18 @@ server entry in its MCP config:
 | Out-of-Office  | `get_out_of_office` |
 | Account        | `whoami` — sanity check; shows the bound mailbox |
 
-Rules now support creation and in-place updates for a practical Outlook COM-safe subset: sender-address / subject / body conditions, plus move, copy, and assign-category actions.
+Rules now support creation and in-place updates for a practical Outlook COM-safe subset: sender-address, recipient/alias, "my address is in To", subject, and body conditions (including exceptions), plus move, copy, and assign-category actions.
+
+For example, an agent can create a rule for mail sent to an administrative alias while excluding messages addressed directly to the current mailbox:
+
+```json
+{
+  "name": "Administratif ABM",
+  "sent_to_recipients": ["administratif@example.com"],
+  "except_to_me": true,
+  "assign_categories": ["Administratif"]
+}
+```
 
 Categories can now be listed, created, and assigned, which makes rule-based tagging workflows fully automatable.
 
@@ -355,9 +366,11 @@ publish.bat
   staging buffer. Confirm the rule name with `outlook_list_rules`
   before calling `outlook_toggle_rule`.
 - Rule creation/editing exposes the most reliable Outlook COM subset:
-  receive rules with sender-address / subject / body matching plus
-  move/copy actions. The native Outlook Rules UI supports more
-  condition/action types than the COM API exposes cleanly here.
+  receive rules with sender-address, recipient/alias, current-mailbox-in-To,
+  subject, and body matching plus move/copy/category actions. Recipient names
+  and aliases must resolve successfully in Outlook's address book. The native
+  Outlook Rules UI still supports more condition/action types than the COM API
+  exposes cleanly here.
 - This server is **local-only**. Do not expose it over a network.
 
 ---
