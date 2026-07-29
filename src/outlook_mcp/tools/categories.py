@@ -24,7 +24,9 @@ def register(mcp, bridge) -> None:
     )
     @safe_call
     async def outlook_list_categories(
-        response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
+        response_format: Annotated[
+            str, Field(description="'markdown' or 'json'.")
+        ] = "markdown",
     ) -> str:
         """List the color categories configured in this Outlook profile."""
         data = await bridge.call(cat_client.list_categories)
@@ -47,11 +49,57 @@ def register(mcp, bridge) -> None:
             int | None,
             Field(
                 description="Optional Outlook category color enum value. Omit to let Outlook choose.",
+                ge=0,
+                le=25,
             ),
         ] = None,
     ) -> str:
         """Create a profile-wide Outlook category."""
         data = await bridge.call(cat_client.create_category, name=name, color=color)
+        return format_response(data, "json")
+
+    @mcp.tool(
+        name="outlook_update_category",
+        annotations={
+            "title": "Rename or recolor an Outlook category",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    @safe_call
+    async def outlook_update_category(
+        name: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="Exact current category name (use outlook_list_categories).",
+            ),
+        ],
+        new_name: Annotated[
+            str | None,
+            Field(
+                min_length=1,
+                description="Optional replacement category name.",
+            ),
+        ] = None,
+        color: Annotated[
+            int | None,
+            Field(
+                ge=0,
+                le=25,
+                description="Optional replacement Outlook category color enum value.",
+            ),
+        ] = None,
+    ) -> str:
+        """Rename and/or recolor an existing profile-wide Outlook category."""
+        data = await bridge.call(
+            cat_client.update_category,
+            name=name,
+            new_name=new_name,
+            color=color,
+        )
         return format_response(data, "json")
 
     @mcp.tool(

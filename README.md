@@ -165,7 +165,7 @@ server entry in its MCP config:
 
 ## Tools
 
-39 tools across 9 categories, all prefixed `outlook_*`.
+40 tools across 9 categories, all prefixed `outlook_*`.
 
 | Category       | Tools |
 | -------------- | ----- |
@@ -174,7 +174,7 @@ server entry in its MCP config:
 | Calendar       | `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `respond_event` |
 | Contacts       | `list_contacts`, `search_contacts` (saved contacts + org directory), `get_contact`, `resolve_name` |
 | Tasks          | `list_tasks`, `create_task`, `complete_task` |
-| Categories     | `list_categories`, `create_category`, `set_category` |
+| Categories     | `list_categories`, `create_category`, `update_category`, `set_category` |
 | Rules          | `list_rules`, `toggle_rule`, `create_rule`, `update_rule`, `delete_rule` |
 | Out-of-Office  | `get_out_of_office` |
 | Account        | `whoami` — sanity check; shows the bound mailbox |
@@ -192,7 +192,7 @@ For example, an agent can create a rule for mail sent to an administrative alias
 }
 ```
 
-Categories can now be listed, created, and assigned, which makes rule-based tagging workflows fully automatable.
+Categories can now be listed, created, renamed, recolored, and assigned, which makes rule-based tagging workflows fully automatable.
 
 Mail workflows now cover editable drafts, conversation/thread retrieval across common folders, richer cross-folder search filters, and explicit send confirmation on outbound tools.
 

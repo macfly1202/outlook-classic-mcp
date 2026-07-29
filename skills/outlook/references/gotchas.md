@@ -84,6 +84,12 @@ outlook_set_category(entry_id=entry_id, categories=new_value)
 
 To **clear** all categories, pass an empty string.
 
+## Renaming or recoloring a category changed it throughout Outlook
+
+`outlook_update_category` edits the profile-wide Master Category List, not one message. A rename or color change is therefore a live global category change.
+
+**Always**: call `outlook_list_categories` first, use the exact current name, and confirm the requested new name/color before updating.
+
 ## "Find Sarah's email address" returns nothing
 
 On corporate accounts the personal Contacts folder is usually **empty** — colleagues live in the org directory (Global Address List). `outlook_search_contacts` searches both saved contacts and the directory (`include_directory=true` by default; directory hits have `source: "directory"` and no `entry_id`). For a direct name→address lookup, `outlook_resolve_name` is faster and authoritative; if it reports not-resolved the name was ambiguous — try the full name or fall back to `search_contacts`.

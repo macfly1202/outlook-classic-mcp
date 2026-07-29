@@ -30,7 +30,7 @@ Tool categories (all prefixed `outlook_`):
   - Contacts: list_contacts, search_contacts (incl. org directory/GAL),
     get_contact, resolve_name (name -> SMTP address)
   - Tasks: list_tasks, create_task, complete_task
-  - Categories: list_categories, set_category
+  - Categories: list_categories, create_category, update_category, set_category
   - Rules: list_rules, toggle_rule, create_rule, update_rule, delete_rule
     (modifies live mail rules — confirm first)
   - Out-of-Office: get_out_of_office

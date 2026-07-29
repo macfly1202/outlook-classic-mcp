@@ -9,7 +9,7 @@ Every `outlook_*` tool, with parameters, defaults, return shape, and notes on ch
 - [Calendar](#calendar) — list_events, get_event, create_event, update_event, delete_event, respond_event
 - [Contacts](#contacts) — list_contacts, search_contacts, get_contact, resolve_name
 - [Tasks](#tasks) — list_tasks, create_task, complete_task
-- [Categories](#categories) — list_categories, create_category, set_category
+- [Categories](#categories) — list_categories, create_category, update_category, set_category
 - [Rules](#rules) — list_rules, toggle_rule, create_rule, update_rule, delete_rule
 - [Out-of-Office](#out-of-office) — get_out_of_office
 - [Account](#account) — whoami
@@ -445,9 +445,23 @@ Creates a new category in the master category list for this Outlook profile.
 | Param   | Type        | Default | Notes |
 | ------- | ----------- | ------- | ----- |
 | `name`  | string      | required | Category display name. |
-| `color` | int / null  | `null`  | Optional Outlook color enum value. Omit to let Outlook choose automatically. |
+| `color` | int / null  | `null`  | Optional Outlook color enum value from 0 to 25. Omit to let Outlook choose automatically. |
 
 **Returns**: `{ status: "created", category: {name, color} }`.
+
+### `outlook_update_category`
+
+Renames and/or recolors an existing category in the profile-wide master category list.
+
+| Param      | Type       | Default  | Notes |
+| ---------- | ---------- | -------- | ----- |
+| `name`     | string     | required | Exact current name from `outlook_list_categories`. |
+| `new_name` | string/null | `null`  | Optional replacement name; must not duplicate another category. |
+| `color`    | int/null   | `null`   | Optional replacement Outlook color enum value from 0 to 25. |
+
+At least one of `new_name` or `color` is required.
+
+**Returns**: `{ status: "updated", previous_name, category: {name, color} }`.
 
 ### `outlook_set_category`
 

@@ -258,7 +258,7 @@ Stashing the original `entry_id` in the task body gives you (and the user) a way
       categories="<existing>, Important")    # comma-separated; empty clears all
 ```
 
-Categories must already exist in the user's Outlook profile. If the user wants a new category, they create it in Outlook itself first — there is no `create_category` tool.
+Categories must already exist in the user's Outlook profile before assignment. Use `outlook_create_category` for a new category, or `outlook_update_category` to rename or recolor an existing one.
 
 ## 17. Toggle a mail rule
 
