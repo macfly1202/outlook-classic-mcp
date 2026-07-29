@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-sys.modules.setdefault("pythoncom", types.ModuleType("pythoncom"))
+if sys.platform != "win32":
+    sys.modules.setdefault("pythoncom", types.ModuleType("pythoncom"))
 
 from outlook_mcp.client import rules as rules_client
 from outlook_mcp.constants import OL_RULE_RECEIVE
