@@ -9,7 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-sys.modules.setdefault("pythoncom", types.ModuleType("pythoncom"))
+if sys.platform != "win32":
+    sys.modules.setdefault("pythoncom", types.ModuleType("pythoncom"))
 
 from outlook_mcp.client import mail as mail_client  # noqa: E402
 from outlook_mcp.constants import OL_CLASS_MAIL  # noqa: E402
